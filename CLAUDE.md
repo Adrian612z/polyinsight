@@ -15,34 +15,67 @@ npm run build        # TypeScript compile + Vite bundle to dist/
 npm run preview      # Preview production build
 npm run check        # Type-check only (no emit)
 npm run lint         # Run ESLint
+npm run test         # Run Vitest in watch mode
+npm run test:run     # Run Vitest once
 ```
-
-No test framework is currently configured.
 
 ## Architecture
 
-**Stack:** React 18 + TypeScript + Vite + Tailwind CSS + Supabase + n8n
+**Stack:** React 18 + TypeScript (strict mode) + Vite + Tailwind CSS + Supabase + n8n
 
 ```
 src/
-├── pages/           # Route components (Analyze, History, Login, Home)
-├── components/      # Shared components (Layout)
-├── store/           # Zustand stores (authStore with localStorage persist)
-├── hooks/           # Custom hooks (useTheme for dark mode)
-├── lib/             # Utilities (supabase client, cn() helper)
-└── App.tsx          # Router setup with protected routes
+├── pages/              # Route components
+│   ├── Analyze.tsx     # URL submission and analysis
+│   ├── History.tsx     # Past analysis records (with pagination)
+│   └── Login.tsx       # Auth page (left-right split layout)
+├── components/
+│   ├── Layout.tsx      # App shell with nav, theme toggle
+│   ├── AnimatedBackground.tsx  # Mouse-following dynamic background
+│   ├── Toast.tsx       # Toast notifications (success/error/info/warning)
+│   ├── ErrorBoundary.tsx       # Global error catching
+│   └── Skeleton.tsx    # Loading skeleton components
+├── store/
+│   └── authStore.ts    # Zustand with localStorage persist
+├── hooks/
+│   └── useTheme.ts     # Dark mode toggle (saves to localStorage)
+├── lib/
+│   ├── supabase.ts     # Supabase client
+│   ├── api.ts          # fetchWithRetry, parseErrorMessage
+│   └── utils.ts        # cn() class merge helper
+├── test/
+│   └── setup.ts        # Vitest setup
+└── App.tsx             # Router + providers (ErrorBoundary, ToastProvider)
 ```
+
+## Key Features
+
+**UI/UX:**
+- Dark mode support (toggle in navbar, persisted)
+- Animated background with mouse-following glow effect
+- Glass-morphism card styling (backdrop-blur)
+- Toast notifications for user feedback
+- Loading skeletons and animations
+
+**Error Handling:**
+- Global ErrorBoundary catches render errors
+- `fetchWithRetry` auto-retries failed requests (3 times, exponential backoff)
+- User-friendly error messages via `parseErrorMessage`
 
 **Data Flow:**
 1. User logs in (mock: admin/admin) → session stored in Zustand + localStorage
 2. User submits Polymarket URL → record created in Supabase with 'pending' status
-3. Webhook POST to n8n for analysis → result saved back to Supabase
-4. Analysis history fetched from Supabase and displayed
+3. Webhook POST to n8n with retry → result saved back to Supabase
+4. Toast shows success/error, analysis history with pagination
 
-**Key Integration Points:**
-- Supabase: `src/lib/supabase.ts` - database operations for `analysis_records` table
-- n8n Webhook: POST with `{url, user_id, record_id}`, expects `{result|output|markdown}` response
-- Auth Store: `src/store/authStore.ts` - Zustand with localStorage persistence key `auth-storage`
+## Testing
+
+Tests located alongside source files (`*.test.ts`):
+- `src/store/authStore.test.ts` - Auth store tests
+- `src/lib/utils.test.ts` - cn() utility tests
+- `src/lib/api.test.ts` - fetchWithRetry, parseErrorMessage tests
+
+Run: `npm run test:run`
 
 ## Database Schema
 
@@ -52,7 +85,7 @@ src/
 - `created_at`, `updated_at` (TIMESTAMPTZ)
 - RLS enabled: users can only access their own records
 
-Migrations are in `supabase/migrations/`.
+Migrations in `supabase/migrations/`.
 
 ## Environment Variables
 
@@ -75,4 +108,22 @@ Protected routes redirect to `/login` if not authenticated.
 
 ## Deployment
 
-Deployed on Vercel. `vercel.json` configures SPA routing (all paths → index.html).
+- **Platform:** Vercel
+- **Repo:** https://github.com/Adrian612z/polyinsight_latest
+- **Config:** `vercel.json` (SPA routing: all paths → index.html)
+
+Push to `main` branch triggers auto-deploy.
+
+## Style Guide
+
+- Colors: Indigo/Purple gradient theme (`from-indigo-600 to-purple-600`)
+- Cards: Glass effect (`bg-white/70 dark:bg-gray-800/70 backdrop-blur-md`)
+- Animations: CSS in `src/index.css` (fade-in-up, shake, float animations)
+- Dark mode: Use `dark:` prefix for all color classes
+
+## TODO / Future Improvements
+
+- [ ] Real authentication (replace mock login with Supabase Auth)
+- [ ] User registration flow
+- [ ] Profile management page
+- [ ] More comprehensive test coverage
