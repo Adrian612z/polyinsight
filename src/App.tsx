@@ -4,11 +4,15 @@ import { Login } from './pages/Login'
 import { Layout } from './components/Layout'
 import { Analyze } from './pages/Analyze'
 import { History } from './pages/History'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { ToastProvider } from './components/Toast'
 
 function App() {
   const { session } = useAuthStore()
 
   return (
+    <ErrorBoundary>
+    <ToastProvider>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={!session ? <Login /> : <Navigate to="/analyze" />} />
@@ -26,6 +30,8 @@ function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </ToastProvider>
+    </ErrorBoundary>
   )
 }
 
