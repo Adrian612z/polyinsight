@@ -1,114 +1,36 @@
-import React, { useState } from 'react'
+import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Send, Loader2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
-import { fetchWithRetry, parseErrorMessage } from '../lib/api'
+import { useAnalysisStore } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
-  const [url, setUrl] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [canRetry, setCanRetry] = useState(false)
   const { session } = useAuthStore()
+  const { url, setUrl, loading, result, error, canRetry, startAnalysis, retry } = useAnalysisStore()
   const toast = useToast()
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
-    if (!url) return
+    if (!session?.user.id) return
 
-    setLoading(true)
-    setError(null)
-    setResult(null)
-    setCanRetry(false)
-
-    try {
-      // 1. Create a record in Supabase with 'pending' status
-      const { data: record, error: dbError } = await supabase
-        .from('analysis_records')
-        .insert({
-          event_url: url,
-          status: 'pending',
-          user_id: session?.user.id
-        })
-        .select()
-        .single()
-
-      if (dbError) throw dbError
-
-      // 2. Call n8n webhook with retry
-      const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL
-
-      let analysisOutput = ''
-
-      if (n8nWebhookUrl) {
-        const response = await fetchWithRetry(
-          n8nWebhookUrl,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              url,
-              user_id: session?.user.id,
-              record_id: record.id
-            })
-          },
-          3,
-          1000
-        )
-
-        if (!response.ok) {
-          const errorText = await response.text()
-          throw new Error(`n8n 错误: ${response.status} ${errorText}`)
-        }
-
-        const responseText = await response.text()
-        console.log('n8n Raw Response:', responseText)
-
-        try {
-          const data = JSON.parse(responseText)
-          analysisOutput = data.result || data.output || data.markdown || JSON.stringify(data, null, 2)
-        } catch {
-          analysisOutput = responseText
-        }
-
-        if (!analysisOutput.trim()) {
-          throw new Error('n8n 返回了空响应。请检查 "Respond to Webhook" 节点配置。')
-        }
-      } else {
-        await new Promise(resolve => setTimeout(resolve, 2000))
-        analysisOutput = `## Analysis for ${url}\n\n**Note: This is a simulated result because VITE_N8N_WEBHOOK_URL is not set.**\n\n- **Market Sentiment**: Bullish\n- **Volume**: High\n- **Prediction**: Yes (65%)`
-      }
-
-      setResult(analysisOutput)
-
-      await supabase
-        .from('analysis_records')
-        .update({
-          status: 'completed',
-          analysis_result: analysisOutput
-        })
-        .eq('id', record.id)
-
-      toast.success('分析完成！')
-
-    } catch (err: unknown) {
-      console.error('Analysis error:', err)
-      const errorMsg = parseErrorMessage(err)
-      setError(errorMsg)
-      setCanRetry(true)
-      toast.error(errorMsg)
-    } finally {
-      setLoading(false)
+    const res = await startAnalysis(session.user.id)
+    if (res.success) {
+      toast.success(res.message || '分析完成！')
+    } else if (res.message) {
+      toast.error(res.message)
     }
   }
 
-  const handleRetry = () => {
-    handleSubmit()
+  const handleRetry = async () => {
+    if (!session?.user.id) return
+
+    const res = await retry(session.user.id)
+    if (res.success) {
+      toast.success(res.message || '分析完成！')
+    } else if (res.message) {
+      toast.error(res.message)
+    }
   }
 
   return (
