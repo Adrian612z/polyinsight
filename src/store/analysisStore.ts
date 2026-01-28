@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { supabase } from '../lib/supabase'
-import { fetchWithRetry, parseErrorMessage } from '../lib/api'
+import { parseErrorMessage } from '../lib/api'
 
 interface AnalysisState {
   url: string
@@ -77,22 +77,19 @@ export const useAnalysisStore = create<AnalysisStore>()(
           let analysisOutput = ''
 
           if (n8nWebhookUrl) {
-            const response = await fetchWithRetry(
-              n8nWebhookUrl,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  url,
-                  user_id: userId,
-                  record_id: record.id,
-                }),
+            // 不使用 fetchWithRetry，因为 n8n 工作流执行时间很长
+            // 自动重试会导致 n8n 重复执行
+            const response = await fetch(n8nWebhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
               },
-              3,
-              1000
-            )
+              body: JSON.stringify({
+                url,
+                user_id: userId,
+                record_id: record.id,
+              }),
+            })
 
             if (!response.ok) {
               const errorText = await response.text()
