@@ -10,6 +10,7 @@ interface AnalysisState {
   error: string | null
   canRetry: boolean
   currentRecordId: string | null
+  pollingStatus: 'idle' | 'polling' | 'completed' | 'failed'
 }
 
 interface AnalysisActions {
@@ -17,6 +18,7 @@ interface AnalysisActions {
   startAnalysis: (userId: string) => Promise<{ success: boolean; message?: string }>
   retry: (userId: string) => Promise<{ success: boolean; message?: string }>
   reset: () => void
+  stopPolling: () => void
 }
 
 type AnalysisStore = AnalysisState & AnalysisActions
@@ -28,7 +30,17 @@ const initialState: AnalysisState = {
   error: null,
   canRetry: false,
   currentRecordId: null,
+  pollingStatus: 'idle',
 }
+
+// 轮询间隔（毫秒）
+const POLL_INTERVAL = 3000
+// 最大轮询时间（10 分钟）
+const MAX_POLL_TIME = 10 * 60 * 1000
+
+// 存储轮询定时器，用于清理
+let pollTimer: ReturnType<typeof setTimeout> | null = null
+let pollStartTime: number = 0
 
 export const useAnalysisStore = create<AnalysisStore>()(
   persist(
@@ -36,6 +48,14 @@ export const useAnalysisStore = create<AnalysisStore>()(
       ...initialState,
 
       setUrl: (url) => set({ url }),
+
+      stopPolling: () => {
+        if (pollTimer) {
+          clearTimeout(pollTimer)
+          pollTimer = null
+        }
+        set({ pollingStatus: 'idle' })
+      },
 
       startAnalysis: async (userId) => {
         const { url, loading } = get()
@@ -49,11 +69,15 @@ export const useAnalysisStore = create<AnalysisStore>()(
           return { success: false, message: '请输入 URL' }
         }
 
+        // 停止之前的轮询
+        get().stopPolling()
+
         set({
           loading: true,
           error: null,
           result: null,
           canRetry: false,
+          pollingStatus: 'idle',
         })
 
         try {
@@ -72,14 +96,12 @@ export const useAnalysisStore = create<AnalysisStore>()(
 
           set({ currentRecordId: record.id })
 
-          // 2. 调用 n8n webhook
+          // 2. 触发 n8n webhook（不等待响应）
           const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL
-          let analysisOutput = ''
 
           if (n8nWebhookUrl) {
-            // 不使用 fetchWithRetry，因为 n8n 工作流执行时间很长
-            // 自动重试会导致 n8n 重复执行
-            const response = await fetch(n8nWebhookUrl, {
+            // 使用 fetch 但不等待响应体，只确保请求发出
+            fetch(n8nWebhookUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -89,47 +111,93 @@ export const useAnalysisStore = create<AnalysisStore>()(
                 user_id: userId,
                 record_id: record.id,
               }),
+            }).catch((err) => {
+              // 只记录错误，不中断流程
+              console.error('n8n webhook trigger error:', err)
             })
 
-            if (!response.ok) {
-              const errorText = await response.text()
-              throw new Error(`n8n 错误: ${response.status} ${errorText}`)
+            // 3. 开始轮询 Supabase 等待结果
+            set({ pollingStatus: 'polling' })
+            pollStartTime = Date.now()
+
+            const pollForResult = async () => {
+              const { currentRecordId, pollingStatus } = get()
+
+              // 检查是否应该停止轮询
+              if (pollingStatus !== 'polling' || !currentRecordId) {
+                return
+              }
+
+              // 检查是否超时
+              if (Date.now() - pollStartTime > MAX_POLL_TIME) {
+                set({
+                  loading: false,
+                  error: '分析超时，请稍后在历史记录中查看结果',
+                  canRetry: true,
+                  pollingStatus: 'failed',
+                })
+                return
+              }
+
+              try {
+                const { data, error } = await supabase
+                  .from('analysis_records')
+                  .select('status, analysis_result')
+                  .eq('id', currentRecordId)
+                  .single()
+
+                if (error) throw error
+
+                if (data.status === 'completed' && data.analysis_result) {
+                  // 分析完成
+                  set({
+                    loading: false,
+                    result: data.analysis_result,
+                    pollingStatus: 'completed',
+                  })
+                  return
+                } else if (data.status === 'failed') {
+                  // 分析失败
+                  set({
+                    loading: false,
+                    error: '分析失败，请重试',
+                    canRetry: true,
+                    pollingStatus: 'failed',
+                  })
+                  return
+                }
+
+                // 继续轮询
+                pollTimer = setTimeout(pollForResult, POLL_INTERVAL)
+              } catch (err) {
+                console.error('Polling error:', err)
+                // 轮询出错，继续尝试
+                pollTimer = setTimeout(pollForResult, POLL_INTERVAL)
+              }
             }
 
-            const responseText = await response.text()
-            console.log('n8n Raw Response:', responseText)
+            // 延迟一点开始轮询，给 n8n 一些启动时间
+            pollTimer = setTimeout(pollForResult, 2000)
 
-            try {
-              const data = JSON.parse(responseText)
-              analysisOutput = data.result || data.output || data.markdown || JSON.stringify(data, null, 2)
-            } catch {
-              analysisOutput = responseText
-            }
-
-            if (!analysisOutput.trim()) {
-              throw new Error('n8n 返回了空响应。请检查 "Respond to Webhook" 节点配置。')
-            }
+            return { success: true, message: '分析已开始，请稍候...' }
           } else {
-            // 模拟响应
+            // 模拟响应（开发模式）
             await new Promise((resolve) => setTimeout(resolve, 2000))
-            analysisOutput = `## Analysis for ${url}\n\n**Note: This is a simulated result because VITE_N8N_WEBHOOK_URL is not set.**\n\n- **Market Sentiment**: Bullish\n- **Volume**: High\n- **Prediction**: Yes (65%)`
+            const analysisOutput = `## Analysis for ${url}\n\n**Note: This is a simulated result because VITE_N8N_WEBHOOK_URL is not set.**\n\n- **Market Sentiment**: Bullish\n- **Volume**: High\n- **Prediction**: Yes (65%)`
+
+            set({ result: analysisOutput })
+
+            await supabase
+              .from('analysis_records')
+              .update({
+                status: 'completed',
+                analysis_result: analysisOutput,
+              })
+              .eq('id', record.id)
+
+            set({ loading: false, pollingStatus: 'completed' })
+            return { success: true, message: '分析完成！' }
           }
-
-          // 3. 更新结果
-          set({ result: analysisOutput })
-
-          // 4. 更新 Supabase 记录
-          await supabase
-            .from('analysis_records')
-            .update({
-              status: 'completed',
-              analysis_result: analysisOutput,
-            })
-            .eq('id', record.id)
-
-          set({ loading: false })
-          return { success: true, message: '分析完成！' }
-
         } catch (err: unknown) {
           console.error('Analysis error:', err)
           const errorMsg = parseErrorMessage(err)
@@ -147,6 +215,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
             loading: false,
             error: errorMsg,
             canRetry: true,
+            pollingStatus: 'failed',
           })
           return { success: false, message: errorMsg }
         }
@@ -156,22 +225,24 @@ export const useAnalysisStore = create<AnalysisStore>()(
         return get().startAnalysis(userId)
       },
 
-      reset: () => set(initialState),
+      reset: () => {
+        get().stopPolling()
+        set(initialState)
+      },
     }),
     {
       name: 'analysis-storage',
-      // 只持久化 url 和 result，不持久化 loading 状态
       partialize: (state) => ({
         url: state.url,
         result: state.result,
         currentRecordId: state.currentRecordId,
       }),
-      // 恢复时确保 loading 为 false
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.loading = false
           state.error = null
           state.canRetry = false
+          state.pollingStatus = 'idle'
         }
       },
     }

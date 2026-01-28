@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Send, Loader2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
@@ -7,8 +7,17 @@ import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
   const { session } = useAuthStore()
-  const { url, setUrl, loading, result, error, canRetry, startAnalysis, retry } = useAnalysisStore()
+  const { url, setUrl, loading, result, error, canRetry, pollingStatus, startAnalysis, retry } = useAnalysisStore()
   const toast = useToast()
+  const prevPollingStatus = useRef(pollingStatus)
+
+  // 监听轮询状态变化，显示对应 toast
+  useEffect(() => {
+    if (prevPollingStatus.current === 'polling' && pollingStatus === 'completed') {
+      toast.success('分析完成！')
+    }
+    prevPollingStatus.current = pollingStatus
+  }, [pollingStatus, toast])
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -16,7 +25,7 @@ export const Analyze: React.FC = () => {
 
     const res = await startAnalysis(session.user.id)
     if (res.success) {
-      toast.success(res.message || '分析完成！')
+      toast.info(res.message || '分析已开始...')
     } else if (res.message) {
       toast.error(res.message)
     }
