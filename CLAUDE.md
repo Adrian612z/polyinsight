@@ -26,7 +26,7 @@ npm run test:run     # Run Vitest once
 ```
 src/
 ├── pages/              # Route components
-│   ├── Analyze.tsx     # URL submission and analysis
+│   ├── Analyze.tsx     # URL submission and analysis (uses analysisStore)
 │   ├── History.tsx     # Past analysis records (with pagination)
 │   └── Login.tsx       # Auth page (left-right split layout)
 ├── components/
@@ -36,7 +36,8 @@ src/
 │   ├── ErrorBoundary.tsx       # Global error catching
 │   └── Skeleton.tsx    # Loading skeleton components
 ├── store/
-│   └── authStore.ts    # Zustand with localStorage persist
+│   ├── authStore.ts    # Auth state with localStorage persist
+│   └── analysisStore.ts # Analysis state (url, loading, result, error)
 ├── hooks/
 │   └── useTheme.ts     # Dark mode toggle (saves to localStorage)
 ├── lib/
@@ -47,6 +48,22 @@ src/
 │   └── setup.ts        # Vitest setup
 └── App.tsx             # Router + providers (ErrorBoundary, ToastProvider)
 ```
+
+## State Management
+
+Uses Zustand with localStorage persistence:
+
+**authStore.ts** - Authentication state
+- `session`: Current user session
+- `login()` / `logout()` actions
+
+**analysisStore.ts** - Analysis workflow state
+- `url`: Input URL (persisted)
+- `loading`: Analysis in progress
+- `result`: Analysis result (persisted)
+- `error`: Error message
+- `startAnalysis()`: Creates Supabase record, calls n8n webhook, updates result
+- State persists across page navigation (switching between Analyze/History)
 
 ## Key Features
 
@@ -61,12 +78,15 @@ src/
 - Global ErrorBoundary catches render errors
 - `fetchWithRetry` auto-retries failed requests (3 times, exponential backoff)
 - User-friendly error messages via `parseErrorMessage`
+- Failed analyses update database status to 'failed'
 
 **Data Flow:**
-1. User logs in (mock: admin/admin) → session stored in Zustand + localStorage
-2. User submits Polymarket URL → record created in Supabase with 'pending' status
-3. Webhook POST to n8n with retry → result saved back to Supabase
-4. Toast shows success/error, analysis history with pagination
+1. User logs in (mock: admin/admin) → session stored in authStore
+2. User submits Polymarket URL → analysisStore.startAnalysis()
+3. Record created in Supabase (status: pending)
+4. Webhook POST to n8n with retry
+5. Result saved to Supabase (status: completed/failed)
+6. Toast shows success/error, result displayed on page
 
 ## Testing
 
@@ -126,4 +146,5 @@ Push to `main` branch triggers auto-deploy.
 - [ ] Real authentication (replace mock login with Supabase Auth)
 - [ ] User registration flow
 - [ ] Profile management page
+- [ ] History page auto-refresh when analysis completes
 - [ ] More comprehensive test coverage
