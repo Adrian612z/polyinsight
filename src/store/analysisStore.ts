@@ -10,12 +10,13 @@ interface AnalysisState {
   error: string | null
   canRetry: boolean
   currentRecordId: string | null
-  pollingStatus: 'idle' | 'polling' | 'completed' | 'failed'
+  pollingStatus: 'idle' | 'polling' | 'completed' | 'failed' | 'cancelled'
 }
 
 interface AnalysisActions {
   setUrl: (url: string) => void
   startAnalysis: (userId: string) => Promise<{ success: boolean; message?: string }>
+  cancelAnalysis: () => Promise<void>
   retry: (userId: string) => Promise<{ success: boolean; message?: string }>
   reset: () => void
   stopPolling: () => void
@@ -55,6 +56,34 @@ export const useAnalysisStore = create<AnalysisStore>()(
           pollTimer = null
         }
         set({ pollingStatus: 'idle' })
+      },
+
+      cancelAnalysis: async () => {
+        const { currentRecordId } = get()
+        
+        // 1. 立即停止前端轮询
+        if (pollTimer) {
+          clearTimeout(pollTimer)
+          pollTimer = null
+        }
+
+        set({ 
+          loading: false, 
+          pollingStatus: 'cancelled',
+          error: null 
+        })
+
+        // 2. 如果有记录ID，更新数据库状态
+        if (currentRecordId) {
+          try {
+            await supabase
+              .from('analysis_records')
+              .update({ status: 'cancelled' }) // 注意：需确保 Supabase 的 Check 约束或枚举类型允许 'cancelled'
+              .eq('id', currentRecordId)
+          } catch (err) {
+            console.error('Failed to cancel analysis record:', err)
+          }
+        }
       },
 
       startAnalysis: async (userId) => {
