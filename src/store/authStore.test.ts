@@ -3,58 +3,33 @@ import { useAuthStore } from './authStore'
 
 describe('authStore', () => {
   beforeEach(() => {
-    // 每个测试前重置 store 状态
-    useAuthStore.setState({ session: null, user: null })
+    useAuthStore.setState({ privyUserId: null, displayName: null })
   })
 
-  it('初始状态应为 null', () => {
+  it('initial state should be null', () => {
     const state = useAuthStore.getState()
-    expect(state.session).toBeNull()
-    expect(state.user).toBeNull()
+    expect(state.privyUserId).toBeNull()
+    expect(state.displayName).toBeNull()
   })
 
-  it('signOut 应清除 session 和 user', () => {
-    // 先设置一些状态
+  it('setPrivyUser should set userId and displayName', () => {
+    useAuthStore.getState().setPrivyUser('did:privy:abc123', 'user@example.com')
+
+    const state = useAuthStore.getState()
+    expect(state.privyUserId).toBe('did:privy:abc123')
+    expect(state.displayName).toBe('user@example.com')
+  })
+
+  it('signOut should clear all state', () => {
     useAuthStore.setState({
-      session: { access_token: 'test' } as never,
-      user: { id: 'test-id' } as never,
+      privyUserId: 'did:privy:abc123',
+      displayName: 'user@example.com',
     })
 
-    // 调用 signOut
     useAuthStore.getState().signOut()
 
-    // 验证状态被清除
     const state = useAuthStore.getState()
-    expect(state.session).toBeNull()
-    expect(state.user).toBeNull()
-  })
-
-  it('setSession 应同时设置 session 和 user', () => {
-    const mockUser = { id: 'user-123', email: 'test@example.com' }
-    const mockSession = {
-      access_token: 'token-123',
-      user: mockUser,
-    }
-
-    useAuthStore.getState().setSession(mockSession as never)
-
-    const state = useAuthStore.getState()
-    expect(state.session).toEqual(mockSession)
-    expect(state.user).toEqual(mockUser)
-  })
-
-  it('setSession(null) 应清除 user', () => {
-    // 先设置状态
-    useAuthStore.setState({
-      session: { access_token: 'test' } as never,
-      user: { id: 'test-id' } as never,
-    })
-
-    // 设置 session 为 null
-    useAuthStore.getState().setSession(null)
-
-    const state = useAuthStore.getState()
-    expect(state.session).toBeNull()
-    expect(state.user).toBeNull()
+    expect(state.privyUserId).toBeNull()
+    expect(state.displayName).toBeNull()
   })
 })

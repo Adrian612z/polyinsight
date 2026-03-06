@@ -6,14 +6,13 @@ import { useAnalysisStore } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
-  const { session } = useAuthStore()
+  const { privyUserId } = useAuthStore()
   const { url, setUrl, loading, result, error, canRetry, pollingStatus, startAnalysis, retry } = useAnalysisStore()
   const toast = useToast()
   const prevPollingStatus = useRef(pollingStatus)
 
   const isIdle = !loading && !result && !error
 
-  // 监听轮询状态变化，显示对应 toast
   useEffect(() => {
     if (prevPollingStatus.current === 'polling' && pollingStatus === 'completed') {
       toast.success('Analysis completed!')
@@ -23,9 +22,9 @@ export const Analyze: React.FC = () => {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
-    if (!session?.user.id) return
+    if (!privyUserId) return
 
-    const res = await startAnalysis(session.user.id)
+    const res = await startAnalysis(privyUserId)
     if (res.success) {
       toast.info(res.message || 'Analysis started...')
     } else if (res.message) {
@@ -34,9 +33,9 @@ export const Analyze: React.FC = () => {
   }
 
   const handleRetry = async () => {
-    if (!session?.user.id) return
+    if (!privyUserId) return
 
-    const res = await retry(session.user.id)
+    const res = await retry(privyUserId)
     if (res.success) {
       toast.success(res.message || 'Analysis completed!')
     } else if (res.message) {

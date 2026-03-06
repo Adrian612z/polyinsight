@@ -13,6 +13,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
+    "@privy-io/react-auth": "^3.16.0",
     "@supabase/supabase-js": "^2.93.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

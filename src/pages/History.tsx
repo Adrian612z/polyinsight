@@ -28,7 +28,7 @@ export const History: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
-  const { session } = useAuthStore()
+  const { privyUserId } = useAuthStore()
   const { currentRecordId, pollingStatus } = useAnalysisStore()
   const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null)
 
@@ -36,14 +36,14 @@ export const History: React.FC = () => {
 
   useEffect(() => {
     const fetchRecords = async () => {
-      if (!session?.user.id) return
+      if (!privyUserId) return
 
       setLoading(true)
       try {
         const { count } = await supabase
           .from('analysis_records')
           .select('*', { count: 'exact', head: true })
-          .eq('user_id', session.user.id)
+          .eq('user_id', privyUserId)
 
         setTotalCount(count || 0)
 
@@ -53,7 +53,7 @@ export const History: React.FC = () => {
         const { data, error } = await supabase
           .from('analysis_records')
           .select('*')
-          .eq('user_id', session.user.id)
+          .eq('user_id', privyUserId)
           .order('created_at', { ascending: false })
           .range(from, to)
 
@@ -67,7 +67,7 @@ export const History: React.FC = () => {
     }
 
     fetchRecords()
-  }, [session?.user.id, currentPage, currentRecordId, pollingStatus])
+  }, [privyUserId, currentPage, currentRecordId, pollingStatus])
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {
