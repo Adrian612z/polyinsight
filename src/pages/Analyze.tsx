@@ -6,127 +6,136 @@ import { useAnalysisStore } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
-  const { session } = useAuthStore()
+  const { privyUserId } = useAuthStore()
   const { url, setUrl, loading, result, error, canRetry, pollingStatus, startAnalysis, retry } = useAnalysisStore()
   const toast = useToast()
   const prevPollingStatus = useRef(pollingStatus)
 
-  // 监听轮询状态变化，显示对应 toast
+  const isIdle = !loading && !result && !error
+
   useEffect(() => {
     if (prevPollingStatus.current === 'polling' && pollingStatus === 'completed') {
-      toast.success('分析完成！')
+      toast.success('Analysis completed!')
     }
     prevPollingStatus.current = pollingStatus
   }, [pollingStatus, toast])
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
-    if (!session?.user.id) return
+    if (!privyUserId) return
 
-    const res = await startAnalysis(session.user.id)
+    const res = await startAnalysis(privyUserId)
     if (res.success) {
-      toast.info(res.message || '分析已开始...')
+      toast.info(res.message || 'Analysis started...')
     } else if (res.message) {
       toast.error(res.message)
     }
   }
 
   const handleRetry = async () => {
-    if (!session?.user.id) return
+    if (!privyUserId) return
 
-    const res = await retry(session.user.id)
+    const res = await retry(privyUserId)
     if (res.success) {
-      toast.success(res.message || '分析完成！')
+      toast.success(res.message || 'Analysis completed!')
     } else if (res.message) {
       toast.error(res.message)
     }
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-fade-in-up">
-      {/* 输入卡片 */}
-      <div className="group bg-white/70 dark:bg-gray-800/70 backdrop-blur-md p-6 rounded-2xl shadow-sm border border-gray-200/50 dark:border-gray-700/50 transition-all duration-300 hover:shadow-lg hover:shadow-indigo-500/10 hover:border-indigo-200/50 dark:hover:border-indigo-700/50">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-xl flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-white" />
+    <div
+      className={
+        `max-w-4xl mx-auto animate-fade-in-up transition-all duration-700 ` +
+        (isIdle ? 'pt-[18vh] md:pt-[22vh]' : 'pt-2')
+      }
+    >
+      <div className="space-y-12">
+        {/* Input Section - Minimalist */}
+        <div className="space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-4xl font-serif text-charcoal transition-all duration-700">
+              Analyze Event
+            </h1>
+            <p className="text-charcoal/60 font-light">Paste a Polymarket event URL to get started.</p>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">分析 Polymarket 事件</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">输入事件 URL，AI 将为您生成分析报告</p>
-          </div>
-        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="url" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              事件 URL
-            </label>
-            <div className="flex gap-3">
+          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+            <div className="relative group">
               <input
                 type="url"
                 id="url"
                 required
                 placeholder="https://polymarket.com/event/..."
-                className="flex-1 block w-full rounded-xl border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm px-4 py-3 border transition-all duration-200 hover:border-gray-300 dark:hover:border-gray-500 dark:placeholder-gray-400"
+                className="block w-full px-6 py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
               <button
                 type="submit"
                 disabled={loading}
-                className="inline-flex items-center px-5 py-3 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-sm hover:shadow-md"
+                className={`absolute right-2 top-2 bottom-2 px-6 font-medium rounded-md transition-colors duration-200 flex items-center ${
+                  loading
+                    ? 'bg-charcoal/5 text-charcoal/40 cursor-default'
+                    : 'bg-terracotta hover:bg-[#C05638] text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                }`}
               >
                 {loading ? (
-                  <Loader2 className="animate-spin h-5 w-5" />
+                  <>
+                    <Loader2 className="animate-spin h-5 w-5 mr-2" />
+                    Analyzing...
+                  </>
                 ) : (
                   <Send className="h-5 w-5" />
                 )}
-                <span className="ml-2">{loading ? '分析中...' : '开始分析'}</span>
               </button>
             </div>
-          </div>
-        </form>
-      </div>
+          </form>
+        </div>
 
-      {/* 错误提示 */}
+        {/* Waiting Section */}
+        {loading && (
+          <div className="max-w-2xl mx-auto text-center py-10">
+            <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-terracotta/10">
+              <Sparkles className="h-6 w-6 text-terracotta animate-pulse" />
+            </div>
+            <div className="mt-4 space-y-1">
+              <div className="text-lg font-serif text-charcoal">正在分析...</div>
+              <div className="text-sm text-charcoal/60 font-light">
+                正在汇总市场情绪与相关新闻，请稍等片刻。
+              </div>
+            </div>
+          </div>
+        )}
+
+      {/* Error State */}
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-2xl p-4 animate-shake">
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-10 h-10 bg-red-100 dark:bg-red-900/50 rounded-xl flex items-center justify-center">
-              <AlertCircle className="h-5 w-5 text-red-500" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-red-800 dark:text-red-300">分析失败</h3>
-              <p className="text-sm text-red-600 dark:text-red-400 mt-1">{error}</p>
-              {canRetry && (
-                <button
-                  onClick={handleRetry}
-                  disabled={loading}
-                  className="mt-3 inline-flex items-center px-4 py-2 text-sm font-medium text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-900/50 rounded-xl hover:bg-red-200 dark:hover:bg-red-900 transition-all duration-200 disabled:opacity-50"
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  重试
-                </button>
-              )}
-            </div>
+        <div className="max-w-2xl mx-auto bg-terracotta/5 border border-terracotta/20 rounded-lg p-4 animate-shake flex items-start gap-4">
+          <AlertCircle className="h-5 w-5 text-terracotta flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-terracotta">Analysis Failed</h3>
+            <p className="text-sm text-charcoal/70 mt-1">{error}</p>
+            {canRetry && (
+              <button
+                onClick={handleRetry}
+                disabled={loading}
+                className="mt-3 inline-flex items-center text-sm font-medium text-terracotta hover:text-[#C05638] underline decoration-terracotta/30 hover:decoration-terracotta transition-all"
+              >
+                <RefreshCw className="h-4 w-4 mr-1.5" />
+                Try again
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* 结果展示 */}
+      {/* Result Display - Paper-like */}
       {result && (
-        <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-md p-6 rounded-2xl shadow-sm border border-gray-200/50 dark:border-gray-700/50 animate-fade-in-up">
-          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-100 dark:border-gray-700">
-            <div className="w-8 h-8 bg-green-100 dark:bg-green-900/50 rounded-lg flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-green-600 dark:text-green-400" />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">分析结果</h2>
-          </div>
-          <div className="prose prose-indigo dark:prose-invert max-w-none prose-headings:text-gray-900 dark:prose-headings:text-white prose-p:text-gray-600 dark:prose-p:text-gray-300 prose-strong:text-gray-900 dark:prose-strong:text-white prose-li:text-gray-600 dark:prose-li:text-gray-300">
-            <ReactMarkdown>{result}</ReactMarkdown>
-          </div>
+        <div className="prose prose-lg prose-stone mx-auto bg-white p-8 md:p-12 border border-charcoal/5 rounded-lg shadow-sm">
+          <ReactMarkdown>{result}</ReactMarkdown>
         </div>
       )}
+      </div>
     </div>
   )
 }

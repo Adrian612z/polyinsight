@@ -1,23 +1,20 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
-import { Session, User } from '@supabase/supabase-js'
 
 interface AuthState {
-  session: Session | null
-  user: User | null
-  setSession: (session: Session | null) => void
-  setUser: (user: User | null) => void
+  privyUserId: string | null
+  displayName: string | null
+  setPrivyUser: (userId: string, displayName: string | null) => void
   signOut: () => void
 }
 
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      session: null,
-      user: null,
-      setSession: (session) => set({ session, user: session?.user ?? null }),
-      setUser: (user) => set({ user }),
-      signOut: () => set({ session: null, user: null }),
+      privyUserId: null,
+      displayName: null,
+      setPrivyUser: (privyUserId, displayName) => set({ privyUserId, displayName }),
+      signOut: () => set({ privyUserId: null, displayName: null }),
     }),
     {
       name: 'auth-storage',
