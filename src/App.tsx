@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 import { useAuthStore } from './store/authStore'
 import { api, setPrivyToken } from './lib/backend'
-import { Login } from './pages/Login'
 import { Layout } from './components/Layout'
 import { Analyze } from './pages/Analyze'
 import { History } from './pages/History'
@@ -88,24 +87,23 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Discovery />} />
-        <Route path="/login" element={!authenticated ? <Login /> : <Navigate to="/analyze" />} />
 
         <Route element={<Layout />}>
           <Route
             path="/analyze"
-            element={authenticated ? <Analyze /> : <Navigate to="/login" />}
+            element={authenticated ? <Analyze /> : <Navigate to="/" />}
           />
           <Route
             path="/history"
-            element={authenticated ? <History /> : <Navigate to="/login" />}
+            element={authenticated ? <History /> : <Navigate to="/" />}
           />
           <Route
             path="/profile"
-            element={authenticated ? <Profile /> : <Navigate to="/login" />}
+            element={authenticated ? <Profile /> : <Navigate to="/" />}
           />
           <Route
             path="/admin"
-            element={authenticated ? <AdminLayout /> : <Navigate to="/login" />}
+            element={authenticated ? <AdminLayout /> : <Navigate to="/" />}
           >
             <Route index element={<AdminDashboard />} />
             <Route path="users" element={<AdminUsers />} />
