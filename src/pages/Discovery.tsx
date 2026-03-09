@@ -60,7 +60,7 @@ export const Discovery: React.FC = () => {
     <AnimatedBackground>
       <div className="min-h-screen flex flex-col font-sans">
         {/* Navbar */}
-        <header className="sticky top-0 z-40 bg-warm-white/90 border-b border-charcoal/5 backdrop-blur-sm">
+        <header className="sticky top-0 z-40 bg-warm-white/90 border-b border-charcoal/5 backdrop-blur-sm animate-fade-in">
           <div className="container mx-auto px-6 py-4 flex justify-between items-center">
             <Logo />
             <nav className="flex items-center gap-4">
@@ -88,22 +88,22 @@ export const Discovery: React.FC = () => {
         {/* Hero Section */}
         <section className="py-20 md:py-28">
           <div className="container mx-auto px-6 text-center max-w-3xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-terracotta/10 rounded-full text-terracotta text-sm font-medium mb-6">
+            <div className="animate-fade-in-up inline-flex items-center gap-2 px-3 py-1.5 bg-terracotta/10 rounded-full text-terracotta text-sm font-medium mb-6">
               <Zap className="w-4 h-4" />
               AI-Powered Prediction Market Analysis
             </div>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-serif text-charcoal leading-tight mb-6">
+            <h1 className="animate-fade-in-up animate-delay-100 text-4xl md:text-5xl lg:text-6xl font-serif text-charcoal leading-tight mb-6">
               Discover Mispriced
               <br />
               <span className="text-terracotta">Opportunities</span>
             </h1>
-            <p className="text-lg text-charcoal/60 font-light max-w-xl mx-auto mb-10">
+            <p className="animate-fade-in-up animate-delay-200 text-lg text-charcoal/60 font-light max-w-xl mx-auto mb-10">
               Our AI continuously scans Polymarket events, comparing market prices against
               independent probability estimates to find edges.
             </p>
 
             {/* Quick Analyze Input */}
-            <div className="max-w-xl mx-auto">
+            <div className="animate-fade-in-up animate-delay-300 max-w-xl mx-auto">
               <button
                 onClick={() => authenticated ? navigate('/analyze') : login()}
                 className="w-full group flex items-center gap-3 px-6 py-4 bg-white border border-charcoal/10 rounded-lg text-left hover:border-terracotta/30 hover:shadow-sm transition-all"
@@ -124,7 +124,7 @@ export const Discovery: React.FC = () => {
         {/* Trending Events */}
         <section className="pb-20">
           <div className="container mx-auto px-6">
-            <div className="flex items-center gap-3 mb-8">
+            <div className="animate-fade-in-up animate-delay-400 flex items-center gap-3 mb-8">
               <TrendingUp className="w-5 h-5 text-terracotta" />
               <h2 className="text-2xl font-serif text-charcoal">Trending on Polymarket</h2>
             </div>
@@ -133,13 +133,19 @@ export const Discovery: React.FC = () => {
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="bg-white border border-charcoal/5 rounded-xl p-6 animate-pulse">
-                    <div className="h-5 bg-charcoal/5 rounded w-3/4 mb-4" />
-                    <div className="space-y-2 mb-4">
-                      <div className="h-8 bg-charcoal/5 rounded" />
-                      <div className="h-8 bg-charcoal/5 rounded" />
+                  <div key={i} className="stagger-card bg-white border border-charcoal/5 rounded-xl p-6">
+                    <div className="flex items-start gap-3 mb-4">
+                      <div className="w-10 h-10 bg-charcoal/5 rounded-lg animate-pulse" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-charcoal/5 rounded w-3/4 animate-pulse" />
+                        <div className="h-4 bg-charcoal/5 rounded w-1/2 animate-pulse" />
+                      </div>
                     </div>
-                    <div className="h-4 bg-charcoal/5 rounded w-1/2" />
+                    <div className="space-y-2 mb-4">
+                      <div className="h-8 bg-charcoal/5 rounded animate-pulse" />
+                      <div className="h-8 bg-charcoal/5 rounded animate-pulse" />
+                    </div>
+                    <div className="h-4 bg-charcoal/5 rounded w-1/3 animate-pulse" />
                   </div>
                 ))}
               </div>
@@ -150,11 +156,12 @@ export const Discovery: React.FC = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {events.map((event) => (
-                  <EventCard
-                    key={event.slug}
-                    event={event}
-                    onAnalyze={() => handleAnalyze(event.url)}
-                  />
+                  <div key={event.slug} className="stagger-card">
+                    <EventCard
+                      event={event}
+                      onAnalyze={() => handleAnalyze(event.url)}
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -163,7 +170,7 @@ export const Discovery: React.FC = () => {
 
         {/* CTA Section */}
         <section className="py-16 border-t border-charcoal/5">
-          <div className="container mx-auto px-6 text-center">
+          <div className="container mx-auto px-6 text-center animate-fade-in-up animate-delay-500">
             <h2 className="text-2xl font-serif text-charcoal mb-4">
               Ready to find your edge?
             </h2>
@@ -172,7 +179,7 @@ export const Discovery: React.FC = () => {
             </p>
             <button
               onClick={() => authenticated ? navigate('/analyze') : login()}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-terracotta hover:bg-[#C05638] text-white font-medium rounded-lg transition-colors"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-terracotta hover:bg-[#C05638] text-white font-medium rounded-lg transition-all hover:scale-105 active:scale-95"
             >
               Get Started Free
               <ArrowRight className="w-4 h-4" />
@@ -220,7 +227,7 @@ const EventCard: React.FC<{ event: TrendingEvent; onAnalyze: () => void }> = ({ 
   const yesProb = singleMarket ? Math.round(singleMarket.prices[0] * 100) : null
 
   return (
-    <div className="bg-white border border-charcoal/5 rounded-xl p-5 hover:shadow-md hover:border-charcoal/10 transition-all flex flex-col">
+    <div className="bg-white border border-charcoal/5 rounded-xl p-5 hover:shadow-md hover:border-charcoal/10 card-hover flex flex-col">
       {/* Header: Image + Title */}
       <div className="flex items-start gap-3 mb-3">
         {event.image && (

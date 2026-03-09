@@ -47,6 +47,39 @@ body {
   animation: fade-in-up 0.5s ease-out;
 }
 
+/* Staggered animation delays */
+.animate-delay-100 { animation-delay: 100ms; animation-fill-mode: both; }
+.animate-delay-200 { animation-delay: 200ms; animation-fill-mode: both; }
+.animate-delay-300 { animation-delay: 300ms; animation-fill-mode: both; }
+.animate-delay-400 { animation-delay: 400ms; animation-fill-mode: both; }
+.animate-delay-500 { animation-delay: 500ms; animation-fill-mode: both; }
+.animate-delay-600 { animation-delay: 600ms; animation-fill-mode: both; }
+
+/* Card stagger: used for grid items */
+.stagger-card {
+  animation: fade-in-up 0.5s ease-out both;
+}
+.stagger-card:nth-child(1)  { animation-delay: 0ms; }
+.stagger-card:nth-child(2)  { animation-delay: 60ms; }
+.stagger-card:nth-child(3)  { animation-delay: 120ms; }
+.stagger-card:nth-child(4)  { animation-delay: 180ms; }
+.stagger-card:nth-child(5)  { animation-delay: 240ms; }
+.stagger-card:nth-child(6)  { animation-delay: 300ms; }
+.stagger-card:nth-child(7)  { animation-delay: 360ms; }
+.stagger-card:nth-child(8)  { animation-delay: 420ms; }
+.stagger-card:nth-child(9)  { animation-delay: 480ms; }
+.stagger-card:nth-child(10) { animation-delay: 540ms; }
+.stagger-card:nth-child(11) { animation-delay: 600ms; }
+.stagger-card:nth-child(12) { animation-delay: 660ms; }
+
+/* Smooth card hover lift */
+.card-hover {
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+}
+
 .animate-shake {
   animation: shake 0.5s ease-in-out;
 }
