@@ -16,6 +16,7 @@ interface TrendingMarket {
 interface TrendingEvent {
   slug: string
   title: string
+  image: string
   url: string
   volume: number
   volume24hr: number
@@ -220,10 +221,19 @@ const EventCard: React.FC<{ event: TrendingEvent; onAnalyze: () => void }> = ({ 
 
   return (
     <div className="bg-white border border-charcoal/5 rounded-xl p-5 hover:shadow-md hover:border-charcoal/10 transition-all flex flex-col">
-      {/* Title */}
-      <h3 className="text-sm font-medium text-charcoal leading-snug line-clamp-2 mb-3">
-        {event.title}
-      </h3>
+      {/* Header: Image + Title */}
+      <div className="flex items-start gap-3 mb-3">
+        {event.image && (
+          <img
+            src={event.image}
+            alt=""
+            className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+          />
+        )}
+        <h3 className="text-sm font-medium text-charcoal leading-snug line-clamp-2">
+          {event.title}
+        </h3>
+      </div>
 
       {/* Market Display */}
       <div className="flex-1 mb-4">

@@ -29,6 +29,7 @@ router.get('/', async (req: Request, res: Response) => {
       return {
         slug: e.slug,
         title: e.title,
+        image: e.image || '',
         url: `https://polymarket.com/event/${e.slug}`,
         volume: e.volume,
         volume24hr: e.volume24hr,

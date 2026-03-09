@@ -1,6 +1,7 @@
 export interface PolymarketEvent {
   slug: string
   title: string
+  image: string
   volume: number
   volume24hr: number
   endDate: string
@@ -22,6 +23,7 @@ export async function fetchTrendingEvents(limit = 10): Promise<PolymarketEvent[]
   return events.map((e: Record<string, unknown>) => ({
     slug: e.slug,
     title: e.title,
+    image: (e.image as string) || '',
     volume: e.volume,
     volume24hr: e.volume24hr,
     endDate: e.endDate,
