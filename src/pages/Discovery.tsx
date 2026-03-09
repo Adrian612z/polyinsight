@@ -217,10 +217,8 @@ function shortLabel(question: string): string {
 }
 
 const EventCard: React.FC<{ event: TrendingEvent; onAnalyze: () => void }> = ({ event, onAnalyze }) => {
-  // Sort markets by volume descending, take top 2
-  const topMarkets = [...event.markets]
-    .sort((a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0))
-    .slice(0, 2)
+  // Take first 2 markets (same order as Polymarket)
+  const topMarkets = event.markets.slice(0, 2)
 
   const isSingleMarket = event.markets.length === 1
   const singleMarket = isSingleMarket ? event.markets[0] : null
