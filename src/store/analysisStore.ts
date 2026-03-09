@@ -1,12 +1,14 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { supabase } from '../lib/supabase'
-import { parseErrorMessage } from '../lib/api'
+import { api } from '../lib/backend'
+import { useAuthStore } from './authStore'
 
 interface AnalysisState {
   url: string
   loading: boolean
   result: string | null
+  partialResult: string | null
   error: string | null
   canRetry: boolean
   currentRecordId: string | null
@@ -15,9 +17,9 @@ interface AnalysisState {
 
 interface AnalysisActions {
   setUrl: (url: string) => void
-  startAnalysis: (userId: string) => Promise<{ success: boolean; message?: string }>
+  startAnalysis: () => Promise<{ success: boolean; message?: string }>
   cancelAnalysis: () => Promise<void>
-  retry: (userId: string) => Promise<{ success: boolean; message?: string }>
+  retry: () => Promise<{ success: boolean; message?: string }>
   reset: () => void
   stopPolling: () => void
 }
@@ -28,18 +30,16 @@ const initialState: AnalysisState = {
   url: '',
   loading: false,
   result: null,
+  partialResult: null,
   error: null,
   canRetry: false,
   currentRecordId: null,
   pollingStatus: 'idle',
 }
 
-// 轮询间隔（毫秒）
 const POLL_INTERVAL = 3000
-// 最大轮询时间（10 分钟）
 const MAX_POLL_TIME = 10 * 60 * 1000
 
-// 存储轮询定时器，用于清理
 let pollTimer: ReturnType<typeof setTimeout> | null = null
 let pollStartTime: number = 0
 
@@ -48,7 +48,14 @@ export const useAnalysisStore = create<AnalysisStore>()(
     (set, get) => ({
       ...initialState,
 
-      setUrl: (url) => set({ url }),
+      setUrl: (url) => {
+        const prev = get()
+        if (url !== prev.url) {
+          set({ url, result: null, partialResult: null, error: null, canRetry: false })
+        } else {
+          set({ url })
+        }
+      },
 
       stopPolling: () => {
         if (pollTimer) {
@@ -60,25 +67,23 @@ export const useAnalysisStore = create<AnalysisStore>()(
 
       cancelAnalysis: async () => {
         const { currentRecordId } = get()
-        
-        // 1. 立即停止前端轮询
+
         if (pollTimer) {
           clearTimeout(pollTimer)
           pollTimer = null
         }
 
-        set({ 
-          loading: false, 
+        set({
+          loading: false,
           pollingStatus: 'cancelled',
-          error: null 
+          error: null,
         })
 
-        // 2. 如果有记录ID，更新数据库状态
         if (currentRecordId) {
           try {
             await supabase
               .from('analysis_records')
-              .update({ status: 'cancelled' }) // 注意：需确保 Supabase 的 Check 约束或枚举类型允许 'cancelled'
+              .update({ status: 'cancelled' })
               .eq('id', currentRecordId)
           } catch (err) {
             console.error('Failed to cancel analysis record:', err)
@@ -86,172 +91,125 @@ export const useAnalysisStore = create<AnalysisStore>()(
         }
       },
 
-      startAnalysis: async (userId) => {
+      startAnalysis: async () => {
         const { url, loading } = get()
 
-        // 防止重复提交
         if (loading) {
-          return { success: false, message: '分析正在进行中' }
+          return { success: false, message: 'Analysis in progress' }
         }
 
         if (!url) {
-          return { success: false, message: '请输入 URL' }
+          return { success: false, message: 'Please enter a URL' }
         }
 
-        // 停止之前的轮询
         get().stopPolling()
 
         set({
           loading: true,
           error: null,
           result: null,
+          partialResult: null,
           canRetry: false,
           pollingStatus: 'idle',
         })
 
         try {
-          // 1. 创建 Supabase 记录
-          const { data: record, error: dbError } = await supabase
-            .from('analysis_records')
-            .insert({
-              event_url: url,
-              status: 'pending',
-              user_id: userId,
-            })
-            .select()
-            .single()
+          // Call backend API - handles credit deduction + n8n trigger
+          const res = await api.createAnalysis(url)
 
-          if (dbError) throw dbError
+          const recordId = res.record_id
+          set({ currentRecordId: recordId })
 
-          set({ currentRecordId: record.id })
+          // Update credit balance in auth store
+          if (typeof res.remaining_balance === 'number') {
+            useAuthStore.getState().setCreditBalance(res.remaining_balance)
+          }
 
-          // 2. 触发 n8n webhook（不等待响应）
-          const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL
+          // Start polling Supabase for result
+          set({ pollingStatus: 'polling' })
+          pollStartTime = Date.now()
 
-          if (n8nWebhookUrl) {
-            // 使用 fetch 但不等待响应体，只确保请求发出
-            fetch(n8nWebhookUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                url,
-                user_id: userId,
-                record_id: record.id,
-              }),
-            }).catch((err) => {
-              // 只记录错误，不中断流程
-              console.error('n8n webhook trigger error:', err)
-            })
+          const pollForResult = async () => {
+            const { currentRecordId, pollingStatus } = get()
 
-            // 3. 开始轮询 Supabase 等待结果
-            set({ pollingStatus: 'polling' })
-            pollStartTime = Date.now()
+            if (pollingStatus !== 'polling' || !currentRecordId) {
+              return
+            }
 
-            const pollForResult = async () => {
-              const { currentRecordId, pollingStatus } = get()
+            if (Date.now() - pollStartTime > MAX_POLL_TIME) {
+              set({
+                loading: false,
+                error: 'Analysis timed out. Check History for results later.',
+                canRetry: true,
+                pollingStatus: 'failed',
+              })
+              return
+            }
 
-              // 检查是否应该停止轮询
-              if (pollingStatus !== 'polling' || !currentRecordId) {
-                return
-              }
+            try {
+              const { data, error } = await supabase
+                .from('analysis_records')
+                .select('status, analysis_result')
+                .eq('id', currentRecordId)
+                .single()
 
-              // 检查是否超时
-              if (Date.now() - pollStartTime > MAX_POLL_TIME) {
+              if (error) throw error
+
+              if (data.status === 'completed' && data.analysis_result) {
                 set({
                   loading: false,
-                  error: '分析超时，请稍后在历史记录中查看结果',
+                  result: data.analysis_result,
+                  partialResult: null,
+                  pollingStatus: 'completed',
+                })
+                return
+              } else if (data.status === 'failed') {
+                set({
+                  loading: false,
+                  error: 'Analysis failed. Please retry.',
+                  partialResult: null,
                   canRetry: true,
                   pollingStatus: 'failed',
                 })
                 return
               }
 
-              try {
-                const { data, error } = await supabase
-                  .from('analysis_records')
-                  .select('status, analysis_result')
-                  .eq('id', currentRecordId)
-                  .single()
-
-                if (error) throw error
-
-                if (data.status === 'completed' && data.analysis_result) {
-                  // 分析完成
-                  set({
-                    loading: false,
-                    result: data.analysis_result,
-                    pollingStatus: 'completed',
-                  })
-                  return
-                } else if (data.status === 'failed') {
-                  // 分析失败
-                  set({
-                    loading: false,
-                    error: '分析失败，请重试',
-                    canRetry: true,
-                    pollingStatus: 'failed',
-                  })
-                  return
-                }
-
-                // 继续轮询
-                pollTimer = setTimeout(pollForResult, POLL_INTERVAL)
-              } catch (err) {
-                console.error('Polling error:', err)
-                // 轮询出错，继续尝试
-                pollTimer = setTimeout(pollForResult, POLL_INTERVAL)
+              if (data.analysis_result) {
+                set({ partialResult: data.analysis_result })
               }
+
+              pollTimer = setTimeout(pollForResult, POLL_INTERVAL)
+            } catch (err) {
+              console.error('Polling error:', err)
+              pollTimer = setTimeout(pollForResult, POLL_INTERVAL)
             }
-
-            // 延迟一点开始轮询，给 n8n 一些启动时间
-            pollTimer = setTimeout(pollForResult, 2000)
-
-            return { success: true, message: '分析已开始，请稍候...' }
-          } else {
-            // 模拟响应（开发模式）
-            await new Promise((resolve) => setTimeout(resolve, 2000))
-            const analysisOutput = `## Analysis for ${url}\n\n**Note: This is a simulated result because VITE_N8N_WEBHOOK_URL is not set.**\n\n- **Market Sentiment**: Bullish\n- **Volume**: High\n- **Prediction**: Yes (65%)`
-
-            set({ result: analysisOutput })
-
-            await supabase
-              .from('analysis_records')
-              .update({
-                status: 'completed',
-                analysis_result: analysisOutput,
-              })
-              .eq('id', record.id)
-
-            set({ loading: false, pollingStatus: 'completed' })
-            return { success: true, message: '分析完成！' }
           }
+
+          pollTimer = setTimeout(pollForResult, 2000)
+
+          return { success: true, message: 'Analysis started...' }
         } catch (err: unknown) {
           console.error('Analysis error:', err)
-          const errorMsg = parseErrorMessage(err)
 
-          // 更新失败状态到数据库
-          const { currentRecordId } = get()
-          if (currentRecordId) {
-            await supabase
-              .from('analysis_records')
-              .update({ status: 'failed' })
-              .eq('id', currentRecordId)
+          const error = err as Error & { status?: number; code?: string }
+          let errorMsg = error.message || 'Request failed'
+
+          if (error.status === 402) {
+            errorMsg = 'Insufficient credits. Please top up to continue.'
           }
 
           set({
             loading: false,
             error: errorMsg,
-            canRetry: true,
+            canRetry: error.status !== 402,
             pollingStatus: 'failed',
           })
           return { success: false, message: errorMsg }
         }
       },
 
-      retry: async (userId) => {
-        return get().startAnalysis(userId)
+      retry: async () => {
+        return get().startAnalysis()
       },
 
       reset: () => {
@@ -263,8 +221,6 @@ export const useAnalysisStore = create<AnalysisStore>()(
       name: 'analysis-storage',
       partialize: (state) => ({
         url: state.url,
-        result: state.result,
-        currentRecordId: state.currentRecordId,
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {

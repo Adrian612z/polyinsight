@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { format } from 'date-fns'
 import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
+import { DecisionCard, parseResult, riskConfig } from '../components/DecisionCard'
 import { SkeletonList } from '../components/Skeleton'
 
 interface AnalysisRecord {
@@ -117,9 +117,18 @@ export const History: React.FC = () => {
                       </p>
                     </div>
                     <div className="flex justify-between items-center mt-2">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider ${status.className}`}>
-                        {status.label}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider ${status.className}`}>
+                          {status.label}
+                        </span>
+                        {record.status === 'completed' && record.analysis_result && (() => {
+                          const { decision } = parseResult(record.analysis_result)
+                          if (!decision) return null
+                          const rc = riskConfig[decision.risk]
+                          if (!rc) return null
+                          return <span className="text-xs" title={rc.desc}>{rc.emoji}</span>
+                        })()}
+                      </div>
                       <span className="text-[10px] text-charcoal/40 font-mono">
                         {format(new Date(record.created_at), 'MM/dd HH:mm')}
                       </span>
@@ -180,9 +189,7 @@ export const History: React.FC = () => {
             
             <div className="p-8 overflow-y-auto flex-1">
               {selectedRecord.analysis_result ? (
-                <div className="prose prose-stone max-w-none prose-headings:font-serif prose-headings:font-normal prose-h2:text-charcoal prose-p:text-charcoal/80 prose-a:text-terracotta hover:prose-a:text-[#C05638]">
-                  <ReactMarkdown>{selectedRecord.analysis_result}</ReactMarkdown>
-                </div>
+                <DecisionCard result={selectedRecord.analysis_result} eventUrl={selectedRecord.event_url} />
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-charcoal/30">
                   <Clock className="w-12 h-12 mb-3 opacity-20" />

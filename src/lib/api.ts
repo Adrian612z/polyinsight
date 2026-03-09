@@ -35,7 +35,7 @@ export async function fetchWithRetry(
     }
   }
 
-  throw lastError || new Error('请求失败')
+  throw lastError || new Error('Request failed')
 }
 
 function sleep(ms: number): Promise<void> {
@@ -47,13 +47,13 @@ function sleep(ms: number): Promise<void> {
  */
 export function parseErrorMessage(error: unknown): string {
   if (error instanceof TypeError && error.message === 'Failed to fetch') {
-    return '网络连接失败。请检查网络连接，或确认 n8n Webhook 已正确配置 CORS。'
+    return 'Network error. Please check your connection.'
   }
 
   // DOMException (包括 AbortError)
   if (error instanceof DOMException) {
     if (error.name === 'AbortError') {
-      return '请求超时，请稍后重试。'
+      return 'Request timed out. Please try again.'
     }
     return error.message
   }
@@ -61,10 +61,10 @@ export function parseErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     // 超时错误 (某些环境下可能是普通 Error)
     if (error.name === 'AbortError') {
-      return '请求超时，请稍后重试。'
+      return 'Request timed out. Please try again.'
     }
     return error.message
   }
 
-  return '发生未知错误，请稍后重试。'
+  return 'An unknown error occurred. Please try again.'
 }

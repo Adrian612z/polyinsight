@@ -1,15 +1,27 @@
 import React, { useEffect, useRef } from 'react'
-import ReactMarkdown from 'react-markdown'
-import { Send, Loader2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react'
+import { useLocation } from 'react-router-dom'
+import { Send, Loader2, AlertCircle, RefreshCw, Sparkles, X, Plus } from 'lucide-react'
+import { DecisionCard } from '../components/DecisionCard'
+import { ProgressiveResult } from '../components/ProgressiveResult'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
   const { privyUserId } = useAuthStore()
-  const { url, setUrl, loading, result, error, canRetry, pollingStatus, startAnalysis, retry } = useAnalysisStore()
+  const { url, setUrl, loading, result, partialResult, error, canRetry, pollingStatus, startAnalysis, retry, reset } = useAnalysisStore()
   const toast = useToast()
+  const location = useLocation()
   const prevPollingStatus = useRef(pollingStatus)
+
+  // Prefill URL from Discovery page navigation
+  useEffect(() => {
+    const state = location.state as { prefillUrl?: string } | null
+    if (state?.prefillUrl) {
+      setUrl(state.prefillUrl)
+      window.history.replaceState({}, '', location.pathname)
+    }
+  }, [location.state, setUrl, location.pathname])
 
   const isIdle = !loading && !result && !error
 
@@ -24,7 +36,7 @@ export const Analyze: React.FC = () => {
     e?.preventDefault()
     if (!privyUserId) return
 
-    const res = await startAnalysis(privyUserId)
+    const res = await startAnalysis()
     if (res.success) {
       toast.info(res.message || 'Analysis started...')
     } else if (res.message) {
@@ -35,12 +47,16 @@ export const Analyze: React.FC = () => {
   const handleRetry = async () => {
     if (!privyUserId) return
 
-    const res = await retry(privyUserId)
+    const res = await retry()
     if (res.success) {
       toast.success(res.message || 'Analysis completed!')
     } else if (res.message) {
       toast.error(res.message)
     }
+  }
+
+  const handleNewAnalysis = () => {
+    reset()
   }
 
   return (
@@ -67,10 +83,20 @@ export const Analyze: React.FC = () => {
                 id="url"
                 required
                 placeholder="https://polymarket.com/event/..."
-                className="block w-full px-6 py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200"
+                className={`block w-full py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200 ${url ? 'px-6 pr-[7.5rem]' : 'px-6 pr-24'}`}
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
               />
+              {url && !loading && (
+                <button
+                  type="button"
+                  onClick={() => setUrl('')}
+                  className="absolute right-[5.5rem] top-1/2 -translate-y-1/2 p-1 text-charcoal/30 hover:text-charcoal/60 transition-colors"
+                  aria-label="Clear URL"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
               <button
                 type="submit"
                 disabled={loading}
@@ -93,19 +119,23 @@ export const Analyze: React.FC = () => {
           </form>
         </div>
 
-        {/* Waiting Section */}
+        {/* Progressive Analysis / Waiting Section */}
         {loading && (
-          <div className="max-w-2xl mx-auto text-center py-10">
-            <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-terracotta/10">
-              <Sparkles className="h-6 w-6 text-terracotta animate-pulse" />
-            </div>
-            <div className="mt-4 space-y-1">
-              <div className="text-lg font-serif text-charcoal">正在分析...</div>
-              <div className="text-sm text-charcoal/60 font-light">
-                正在汇总市场情绪与相关新闻，请稍等片刻。
+          partialResult ? (
+            <ProgressiveResult partialResult={partialResult} />
+          ) : (
+            <div className="max-w-2xl mx-auto text-center py-10">
+              <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-terracotta/10">
+                <Sparkles className="h-6 w-6 text-terracotta animate-pulse" />
+              </div>
+              <div className="mt-4 space-y-1">
+                <div className="text-lg font-serif text-charcoal">Analyzing...</div>
+                <div className="text-sm text-charcoal/60 font-light">
+                  Gathering market sentiment and related news. This may take a moment.
+                </div>
               </div>
             </div>
-          </div>
+          )
         )}
 
       {/* Error State */}
@@ -129,11 +159,20 @@ export const Analyze: React.FC = () => {
         </div>
       )}
 
-      {/* Result Display - Paper-like */}
+      {/* Result Display - Decision Card */}
       {result && (
-        <div className="prose prose-lg prose-stone mx-auto bg-white p-8 md:p-12 border border-charcoal/5 rounded-lg shadow-sm">
-          <ReactMarkdown>{result}</ReactMarkdown>
-        </div>
+        <>
+          <DecisionCard result={result} eventUrl={url} />
+          <div className="flex justify-center pt-2 pb-8">
+            <button
+              onClick={handleNewAnalysis}
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-charcoal/70 bg-white border border-charcoal/10 rounded-lg hover:border-terracotta/30 hover:text-terracotta transition-all"
+            >
+              <Plus className="h-4 w-4" />
+              Analyze Another Event
+            </button>
+          </div>
+        </>
       )}
       </div>
     </div>

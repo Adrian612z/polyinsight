@@ -3,14 +3,14 @@ import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
-import { LogOut, LayoutDashboard, History } from 'lucide-react'
+import { LogOut, LayoutDashboard, History, Coins, Compass, User, Shield } from 'lucide-react'
 import clsx from 'clsx'
 import { Logo } from './Logo'
 import { AnimatedBackground } from './AnimatedBackground'
 
 export const Layout: React.FC = () => {
   const { authenticated, logout } = usePrivy()
-  const { displayName, signOut } = useAuthStore()
+  const { displayName, creditBalance, role, signOut } = useAuthStore()
   const { reset } = useAnalysisStore()
   const navigate = useNavigate()
   const location = useLocation()
@@ -23,6 +23,7 @@ export const Layout: React.FC = () => {
   }
 
   const navItems = [
+    { label: 'Discover', path: '/', icon: Compass },
     { label: 'Analyze', path: '/analyze', icon: LayoutDashboard },
     { label: 'History', path: '/history', icon: History },
   ]
@@ -63,10 +64,41 @@ export const Layout: React.FC = () => {
 
             <div className="w-px h-5 bg-charcoal/10 mx-2" />
 
-            {displayName && (
-              <span className="text-xs text-charcoal/50 font-mono max-w-[140px] truncate">
-                {displayName}
+            <Link
+              to="/profile"
+              className="flex items-center gap-1.5 px-2.5 py-1 bg-terracotta/5 hover:bg-terracotta/10 rounded-full transition-colors"
+            >
+              <Coins size={14} className="text-terracotta" />
+              <span className="text-xs font-mono font-semibold text-terracotta">
+                {(creditBalance / 100).toFixed(2)}
               </span>
+            </Link>
+
+            {role === 'admin' && (
+              <Link
+                to="/admin"
+                className={clsx(
+                  'flex items-center gap-1.5 text-sm font-medium transition-colors duration-200',
+                  location.pathname.startsWith('/admin')
+                    ? 'text-terracotta'
+                    : 'text-charcoal/60 hover:text-charcoal'
+                )}
+              >
+                <Shield size={16} />
+                <span>Admin</span>
+              </Link>
+            )}
+
+            {displayName && (
+              <Link
+                to="/profile"
+                className="flex items-center gap-1.5 text-charcoal/50 hover:text-charcoal transition-colors"
+              >
+                <User size={16} />
+                <span className="text-xs font-mono max-w-[140px] truncate">
+                  {displayName}
+                </span>
+              </Link>
             )}
 
             <button
