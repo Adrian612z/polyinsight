@@ -1,18 +1,19 @@
 import React, { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Send, Loader2, AlertCircle, RefreshCw, Sparkles, X, Plus } from 'lucide-react'
+import { Send, Loader2, AlertCircle, RefreshCw, Sparkles, X, StopCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { DecisionCard } from '../components/DecisionCard'
 import { ProgressiveResult } from '../components/ProgressiveResult'
 import { useAuthStore } from '../store/authStore'
-import { useAnalysisStore } from '../store/analysisStore'
+import { useAnalysisStore, useSessionList, type AnalysisSession } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
   const { privyUserId } = useAuthStore()
-  const { url, setUrl, loading, result, partialResult, error, canRetry, pollingStatus, startAnalysis, retry, reset } = useAnalysisStore()
+  const { inputUrl, setUrl, activeSessionId, setActiveSession, startAnalysis, cancelAnalysis, retrySession, removeSession } = useAnalysisStore()
+  const sessions = useSessionList()
   const toast = useToast()
   const location = useLocation()
-  const prevPollingStatus = useRef(pollingStatus)
+  const prevSessionStatuses = useRef<Record<string, string>>({})
 
   // Prefill URL from Discovery page navigation
   useEffect(() => {
@@ -23,14 +24,18 @@ export const Analyze: React.FC = () => {
     }
   }, [location.state, setUrl, location.pathname])
 
-  const isIdle = !loading && !result && !error
-
+  // Toast on completion
   useEffect(() => {
-    if (prevPollingStatus.current === 'polling' && pollingStatus === 'completed') {
-      toast.success('Analysis completed!')
+    for (const s of sessions) {
+      const prev = prevSessionStatuses.current[s.id]
+      if (prev === 'polling' && s.status === 'completed') {
+        toast.success('Analysis completed!')
+      }
+      prevSessionStatuses.current[s.id] = s.status
     }
-    prevPollingStatus.current = pollingStatus
-  }, [pollingStatus, toast])
+  }, [sessions, toast])
+
+  const isIdle = sessions.length === 0
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
@@ -44,21 +49,6 @@ export const Analyze: React.FC = () => {
     }
   }
 
-  const handleRetry = async () => {
-    if (!privyUserId) return
-
-    const res = await retry()
-    if (res.success) {
-      toast.success(res.message || 'Analysis completed!')
-    } else if (res.message) {
-      toast.error(res.message)
-    }
-  }
-
-  const handleNewAnalysis = () => {
-    reset()
-  }
-
   return (
     <div
       className={
@@ -66,8 +56,8 @@ export const Analyze: React.FC = () => {
         (isIdle ? 'pt-[18vh] md:pt-[22vh]' : 'pt-2')
       }
     >
-      <div className="space-y-12">
-        {/* Input Section - Minimalist */}
+      <div className="space-y-8">
+        {/* Input Section */}
         <div className="space-y-6">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-serif text-charcoal transition-all duration-700">
@@ -83,11 +73,11 @@ export const Analyze: React.FC = () => {
                 id="url"
                 required
                 placeholder="https://polymarket.com/event/..."
-                className={`block w-full py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200 ${url ? 'px-6 pr-[7.5rem]' : 'px-6 pr-24'}`}
-                value={url}
+                className={`block w-full py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200 ${inputUrl ? 'px-6 pr-[7.5rem]' : 'px-6 pr-24'}`}
+                value={inputUrl}
                 onChange={(e) => setUrl(e.target.value)}
               />
-              {url && !loading && (
+              {inputUrl && (
                 <button
                   type="button"
                   onClick={() => setUrl('')}
@@ -99,82 +89,217 @@ export const Analyze: React.FC = () => {
               )}
               <button
                 type="submit"
-                disabled={loading}
-                className={`absolute right-2 top-2 bottom-2 px-6 font-medium rounded-md transition-colors duration-200 flex items-center ${
-                  loading
-                    ? 'bg-charcoal/5 text-charcoal/40 cursor-default'
-                    : 'bg-terracotta hover:bg-[#C05638] text-white disabled:opacity-50 disabled:cursor-not-allowed'
-                }`}
+                className="absolute right-2 top-2 bottom-2 px-6 font-medium rounded-md transition-colors duration-200 flex items-center bg-terracotta hover:bg-[#C05638] text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                    Analyzing...
-                  </>
-                ) : (
-                  <Send className="h-5 w-5" />
-                )}
+                <Send className="h-5 w-5" />
               </button>
             </div>
           </form>
         </div>
 
-        {/* Progressive Analysis / Waiting Section */}
-        {loading && (
-          partialResult ? (
-            <ProgressiveResult partialResult={partialResult} />
-          ) : (
-            <div className="max-w-2xl mx-auto text-center py-10">
-              <div className="inline-flex items-center justify-center h-12 w-12 rounded-full bg-terracotta/10">
-                <Sparkles className="h-6 w-6 text-terracotta animate-pulse" />
-              </div>
-              <div className="mt-4 space-y-1">
-                <div className="text-lg font-serif text-charcoal">Analyzing...</div>
-                <div className="text-sm text-charcoal/60 font-light">
-                  Gathering market sentiment and related news. This may take a moment.
+        {/* Session Cards */}
+        {sessions.length > 0 && (
+          <div className="space-y-4 max-w-2xl mx-auto">
+            {sessions.map((session) => (
+              <SessionCard
+                key={session.id}
+                session={session}
+                isExpanded={session.id === activeSessionId}
+                onToggle={() => setActiveSession(session.id === activeSessionId ? null : session.id)}
+                onCancel={() => cancelAnalysis(session.id)}
+                onRetry={() => retrySession(session.id)}
+                onRemove={() => removeSession(session.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// --- Session Card Component ---
+
+function extractSlug(url: string): string {
+  const match = url.match(/polymarket\.com\/event\/([^/?#]+)/)
+  return match ? match[1].replace(/-/g, ' ').slice(0, 50) : url.slice(0, 50)
+}
+
+function countSteps(partialResult: string | null): { done: number; total: number } {
+  if (!partialResult) return { done: 0, total: 4 }
+  const matches = partialResult.match(/<!--STEP:\w+-->/g)
+  return { done: matches ? matches.length : 0, total: 4 }
+}
+
+interface SessionCardProps {
+  session: AnalysisSession
+  isExpanded: boolean
+  onToggle: () => void
+  onCancel: () => void
+  onRetry: () => void
+  onRemove: () => void
+}
+
+const SessionCard: React.FC<SessionCardProps> = ({
+  session, isExpanded, onToggle, onCancel, onRetry, onRemove,
+}) => {
+  const { done, total } = countSteps(session.partialResult)
+  const isPolling = session.status === 'polling'
+  const isCompleted = session.status === 'completed'
+  const isFailed = session.status === 'failed'
+  const isCancelled = session.status === 'cancelled'
+
+  return (
+    <div className={`border rounded-xl overflow-hidden transition-all duration-300 animate-fade-in-up ${
+      isPolling ? 'border-terracotta/20 bg-white shadow-sm' :
+      isCompleted ? 'border-emerald-200 bg-white' :
+      isFailed ? 'border-red-200 bg-white' :
+      'border-charcoal/10 bg-charcoal/[0.02]'
+    }`}>
+      {/* Header - always visible */}
+      <button
+        onClick={onToggle}
+        className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-charcoal/[0.02] transition-colors"
+      >
+        {/* Status indicator */}
+        {isPolling && <Loader2 className="w-5 h-5 text-terracotta animate-spin flex-shrink-0" />}
+        {isCompleted && (
+          <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+            <div className="w-2 h-2 rounded-full bg-emerald-500" />
+          </div>
+        )}
+        {isFailed && <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />}
+        {isCancelled && <StopCircle className="w-5 h-5 text-charcoal/30 flex-shrink-0" />}
+
+        {/* URL slug */}
+        <span className="text-sm text-charcoal truncate flex-1">
+          {extractSlug(session.url)}
+        </span>
+
+        {/* Step progress / status */}
+        <span className={`text-xs font-medium whitespace-nowrap ${
+          isPolling ? 'text-terracotta' :
+          isCompleted ? 'text-emerald-600' :
+          isFailed ? 'text-red-400' :
+          'text-charcoal/40'
+        }`}>
+          {isPolling && `Step ${done}/${total}`}
+          {isCompleted && 'Done'}
+          {isFailed && 'Failed'}
+          {isCancelled && 'Cancelled'}
+        </span>
+
+        {/* Expand chevron */}
+        {isExpanded ? (
+          <ChevronUp className="w-4 h-4 text-charcoal/30 flex-shrink-0" />
+        ) : (
+          <ChevronDown className="w-4 h-4 text-charcoal/30 flex-shrink-0" />
+        )}
+      </button>
+
+      {/* Expanded content */}
+      {isExpanded && (
+        <div className="px-5 pb-5 border-t border-charcoal/5">
+          {/* Polling: show progress */}
+          {isPolling && (
+            <div className="pt-4 space-y-4">
+              {session.partialResult ? (
+                <ProgressiveResult partialResult={session.partialResult} />
+              ) : (
+                <div className="text-center py-6">
+                  <Sparkles className="h-6 w-6 text-terracotta animate-pulse mx-auto" />
+                  <div className="mt-3 text-sm text-charcoal/60 font-light">
+                    Gathering market sentiment and related news...
+                  </div>
                 </div>
+              )}
+              <div className="flex justify-center">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCancel() }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-charcoal/50 bg-white border border-charcoal/10 rounded-lg hover:border-red-300 hover:text-red-500 transition-all"
+                >
+                  <StopCircle className="h-4 w-4" />
+                  Cancel
+                </button>
               </div>
             </div>
-          )
-        )}
+          )}
 
-      {/* Error State */}
-      {error && (
-        <div className="max-w-2xl mx-auto bg-terracotta/5 border border-terracotta/20 rounded-lg p-4 animate-shake flex items-start gap-4">
-          <AlertCircle className="h-5 w-5 text-terracotta flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <h3 className="text-sm font-medium text-terracotta">Analysis Failed</h3>
-            <p className="text-sm text-charcoal/70 mt-1">{error}</p>
-            {canRetry && (
-              <button
-                onClick={handleRetry}
-                disabled={loading}
-                className="mt-3 inline-flex items-center text-sm font-medium text-terracotta hover:text-[#C05638] underline decoration-terracotta/30 hover:decoration-terracotta transition-all"
-              >
-                <RefreshCw className="h-4 w-4 mr-1.5" />
-                Try again
-              </button>
-            )}
-          </div>
+          {/* Completed: show result */}
+          {isCompleted && session.result && (
+            <div className="pt-4 space-y-4">
+              <DecisionCard result={session.result} eventUrl={session.url} />
+              <div className="flex justify-center">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemove() }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Failed: show error + partial results */}
+          {isFailed && (
+            <div className="pt-4 space-y-4">
+              <div className="bg-red-50 border border-red-100 rounded-lg p-4 flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-red-600">Analysis Failed</h3>
+                  <p className="text-sm text-charcoal/70 mt-1">{session.error}</p>
+                  {session.canRetry && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onRetry() }}
+                      className="mt-3 inline-flex items-center text-sm font-medium text-terracotta hover:text-[#C05638] underline decoration-terracotta/30 hover:decoration-terracotta transition-all"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                      Try again
+                    </button>
+                  )}
+                </div>
+              </div>
+              {session.partialResult && (
+                <div className="opacity-60">
+                  <p className="text-xs text-charcoal/40 mb-2">Partial results:</p>
+                  <ProgressiveResult partialResult={session.partialResult} stalled />
+                </div>
+              )}
+              <div className="flex justify-center">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemove() }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Cancelled */}
+          {isCancelled && (
+            <div className="pt-4 space-y-4">
+              <div className="text-center text-sm text-charcoal/40">Analysis was cancelled.</div>
+              {session.partialResult && (
+                <div className="opacity-50">
+                  <ProgressiveResult partialResult={session.partialResult} />
+                </div>
+              )}
+              <div className="flex justify-center">
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemove() }}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      {/* Result Display - Decision Card */}
-      {result && (
-        <>
-          <DecisionCard result={result} eventUrl={url} />
-          <div className="flex justify-center pt-2 pb-8">
-            <button
-              onClick={handleNewAnalysis}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-charcoal/70 bg-white border border-charcoal/10 rounded-lg hover:border-terracotta/30 hover:text-terracotta transition-all"
-            >
-              <Plus className="h-4 w-4" />
-              Analyze Another Event
-            </button>
-          </div>
-        </>
-      )}
-      </div>
     </div>
   )
 }

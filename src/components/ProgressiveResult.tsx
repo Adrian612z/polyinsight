@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
-import { Check, Loader2, Circle } from 'lucide-react'
+import { Check, Loader2, Circle, AlertTriangle } from 'lucide-react'
 
 const STEP_LABELS: Record<string, string> = {
   info: 'Extracting event info',
@@ -32,9 +32,10 @@ function parseSteps(partialResult: string): Map<string, string> {
 
 interface ProgressiveResultProps {
   partialResult: string
+  stalled?: boolean
 }
 
-export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialResult }) => {
+export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialResult, stalled }) => {
   const completedSteps = parseSteps(partialResult)
   const completedKeys = Array.from(completedSteps.keys())
   const currentStepIndex = completedKeys.length
@@ -62,7 +63,11 @@ export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialRes
                   <Check className="w-4 h-4 text-emerald-600" />
                 </div>
               ) : isInProgress ? (
-                <Loader2 className="w-6 h-6 text-terracotta animate-spin flex-shrink-0" />
+                stalled ? (
+                  <AlertTriangle className="w-6 h-6 text-amber-500 flex-shrink-0" />
+                ) : (
+                  <Loader2 className="w-6 h-6 text-terracotta animate-spin flex-shrink-0" />
+                )
               ) : (
                 <Circle className="w-6 h-6 text-charcoal/20 flex-shrink-0" />
               )}
@@ -75,10 +80,10 @@ export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialRes
               </span>
               <span className={`text-xs ml-auto ${
                 isDone ? 'text-emerald-600' :
-                isInProgress ? 'text-terracotta animate-pulse' :
+                isInProgress ? (stalled ? 'text-amber-500' : 'text-terracotta animate-pulse') :
                 'text-charcoal/30'
               }`}>
-                {isDone ? 'Done' : isInProgress ? 'In progress...' : 'Waiting'}
+                {isDone ? 'Done' : isInProgress ? (stalled ? 'Stalled' : 'In progress...') : 'Waiting'}
               </span>
             </div>
 

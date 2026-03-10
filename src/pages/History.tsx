@@ -29,7 +29,8 @@ export const History: React.FC = () => {
   const [totalCount, setTotalCount] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
   const { privyUserId } = useAuthStore()
-  const { currentRecordId, pollingStatus } = useAnalysisStore()
+  // Re-fetch when any session completes
+  const completedCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'completed').length)
   const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null)
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
@@ -67,7 +68,7 @@ export const History: React.FC = () => {
     }
 
     fetchRecords()
-  }, [privyUserId, currentPage, currentRecordId, pollingStatus])
+  }, [privyUserId, currentPage, completedCount])
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {

@@ -8,6 +8,7 @@ import referralsRouter from './routes/referrals.js'
 import featuredRouter from './routes/featured.js'
 import trendingRouter from './routes/trending.js'
 import adminRouter from './routes/admin.js'
+import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
 
 const app = express()
 
@@ -30,4 +31,5 @@ app.use('/api/admin', adminRouter)
 
 app.listen(config.port, () => {
   console.log(`PolyInsight API server running on port ${config.port}`)
+  startStaleAnalysisJob()
 })

@@ -11,15 +11,17 @@ import { AnimatedBackground } from './AnimatedBackground'
 export const Layout: React.FC = () => {
   const { authenticated, logout } = usePrivy()
   const { displayName, creditBalance, role, signOut } = useAuthStore()
-  const { reset } = useAnalysisStore()
+  const { reset, stopAllPolling } = useAnalysisStore()
+  const activeCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'polling').length)
   const navigate = useNavigate()
   const location = useLocation()
 
   const handleLogout = async () => {
+    stopAllPolling()
     reset()
     signOut()
     await logout()
-    navigate('/login')
+    navigate('/')
   }
 
   const navItems = [
@@ -58,6 +60,11 @@ export const Layout: React.FC = () => {
                 >
                   <Icon size={18} strokeWidth={isActive ? 2.5 : 2} />
                   <span>{item.label}</span>
+                  {item.label === 'Analyze' && activeCount > 0 && (
+                    <span className="ml-0.5 text-[10px] bg-terracotta text-white rounded-full px-1.5 py-0.5 leading-none font-semibold animate-pulse">
+                      {activeCount}
+                    </span>
+                  )}
                 </Link>
               )
             })}
