@@ -42,7 +42,7 @@ AI-powered prediction market analysis platform. Submit a Polymarket event URL, g
 | AI Workflow | n8n (self-hosted) |
 | State | Zustand (persisted to localStorage) |
 | i18n | react-i18next (English / Chinese) |
-| Deployment | Vercel (frontend) + Nginx reverse proxy (API + n8n) |
+| Deployment | Nginx reverse proxy (frontend + API + n8n) |
 
 ---
 
@@ -210,7 +210,7 @@ MIT
 | AI 工作流 | n8n（自托管） |
 | 状态管理 | Zustand（持久化到 localStorage） |
 | 国际化 | react-i18next（中文 / 英文） |
-| 部署 | Vercel（前端）+ Nginx 反向代理（API + n8n） |
+| 部署 | Nginx 反向代理（前端 + API + n8n） |
 
 ---
 
