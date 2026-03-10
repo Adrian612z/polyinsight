@@ -326,16 +326,17 @@ export const useAnalysisStore = create<AnalysisStore>()(
       partialize: (state) => ({
         inputUrl: state.inputUrl,
       }),
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          // Clear sessions on rehydrate (can't resume polling)
-          state.sessions = {}
-          state.activeSessionId = null
-          // Migrate old format: { url: "..." } → { inputUrl: "..." }
-          const raw = state as unknown as Record<string, unknown>
-          if (raw.url && typeof raw.url === 'string' && !state.inputUrl) {
-            state.inputUrl = raw.url as string
-          }
+      merge: (persisted, current) => {
+        const p = (persisted || {}) as Record<string, unknown>
+        // Migrate old format: { url: "..." } → { inputUrl: "..." }
+        const inputUrl = (typeof p.inputUrl === 'string' ? p.inputUrl : '') ||
+                         (typeof p.url === 'string' ? p.url : '') ||
+                         (current as AnalysisStore).inputUrl
+        return {
+          ...(current as AnalysisStore),
+          inputUrl,
+          sessions: {},
+          activeSessionId: null,
         }
       },
     }
