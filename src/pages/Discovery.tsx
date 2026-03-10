@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
+import { useTranslation } from 'react-i18next'
 import { ArrowRight, TrendingUp, Zap, Search, ExternalLink, ChevronRight } from 'lucide-react'
 import { api } from '../lib/backend'
 import { Logo } from '../components/Logo'
@@ -32,6 +33,7 @@ function formatVolume(v: number): string {
 
 export const Discovery: React.FC = () => {
   const { authenticated, login } = usePrivy()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const [events, setEvents] = useState<TrendingEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,12 +66,22 @@ export const Discovery: React.FC = () => {
           <div className="container mx-auto px-6 py-4 flex justify-between items-center">
             <Logo />
             <nav className="flex items-center gap-4">
+              <button
+                onClick={() => {
+                  const newLang = i18n.language === 'zh' ? 'en' : 'zh'
+                  i18n.changeLanguage(newLang)
+                  localStorage.setItem('polyinsight-lang', newLang)
+                }}
+                className="text-xs font-medium text-charcoal/50 hover:text-charcoal transition-colors px-2 py-1 rounded hover:bg-charcoal/5"
+              >
+                {i18n.language === 'zh' ? 'EN' : '中文'}
+              </button>
               {authenticated ? (
                 <Link
                   to="/analyze"
                   className="inline-flex items-center gap-2 px-4 py-2 bg-terracotta hover:bg-[#C05638] text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  Go to Dashboard
+                  {t('discovery.nav.goToDashboard')}
                   <ArrowRight className="w-4 h-4" />
                 </Link>
               ) : (
@@ -77,7 +89,7 @@ export const Discovery: React.FC = () => {
                   onClick={login}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-terracotta hover:bg-[#C05638] text-white text-sm font-medium rounded-lg transition-colors"
                 >
-                  Sign In
+                  {t('discovery.nav.signIn')}
                   <ArrowRight className="w-4 h-4" />
                 </button>
               )}
@@ -90,16 +102,15 @@ export const Discovery: React.FC = () => {
           <div className="container mx-auto px-6 text-center max-w-3xl">
             <div className="animate-fade-in-up inline-flex items-center gap-2 px-3 py-1.5 bg-terracotta/10 rounded-full text-terracotta text-sm font-medium mb-6">
               <Zap className="w-4 h-4" />
-              AI-Powered Prediction Market Analysis
+              {t('discovery.hero.badge')}
             </div>
             <h1 className="animate-fade-in-up animate-delay-100 text-4xl md:text-5xl lg:text-6xl font-serif text-charcoal leading-tight mb-6">
-              Discover Mispriced
+              {t('discovery.hero.title1')}
               <br />
-              <span className="text-terracotta">Opportunities</span>
+              <span className="text-terracotta">{t('discovery.hero.title2')}</span>
             </h1>
             <p className="animate-fade-in-up animate-delay-200 text-lg text-charcoal/60 font-light max-w-xl mx-auto mb-10">
-              Our AI continuously scans Polymarket events, comparing market prices against
-              independent probability estimates to find edges.
+              {t('discovery.hero.subtitle')}
             </p>
 
             {/* Quick Analyze Input */}
@@ -109,13 +120,13 @@ export const Discovery: React.FC = () => {
                 className="w-full group flex items-center gap-3 px-6 py-4 bg-white border border-charcoal/10 rounded-lg text-left hover:border-terracotta/30 hover:shadow-sm transition-all"
               >
                 <Search className="w-5 h-5 text-charcoal/30" />
-                <span className="flex-1 text-charcoal/40">Paste a Polymarket URL to analyze...</span>
+                <span className="flex-1 text-charcoal/40">{t('discovery.hero.placeholder')}</span>
                 <span className="px-3 py-1 bg-terracotta text-white text-sm font-medium rounded-md group-hover:bg-[#C05638] transition-colors">
-                  Analyze
+                  {t('discovery.hero.analyzeBtn')}
                 </span>
               </button>
               <p className="text-xs text-charcoal/40 mt-2">
-                3 free analysis credits for new users
+                {t('discovery.hero.freeCredits')}
               </p>
             </div>
           </div>
@@ -126,7 +137,7 @@ export const Discovery: React.FC = () => {
           <div className="container mx-auto px-6">
             <div className="animate-fade-in-up animate-delay-400 flex items-center gap-3 mb-8">
               <TrendingUp className="w-5 h-5 text-terracotta" />
-              <h2 className="text-2xl font-serif text-charcoal">Trending on Polymarket</h2>
+              <h2 className="text-2xl font-serif text-charcoal">{t('discovery.trending.title')}</h2>
             </div>
 
             {/* Cards Grid */}
@@ -151,7 +162,7 @@ export const Discovery: React.FC = () => {
               </div>
             ) : events.length === 0 ? (
               <div className="text-center py-16">
-                <p className="text-charcoal/40 text-lg">Unable to load trending events. Try again later.</p>
+                <p className="text-charcoal/40 text-lg">{t('discovery.trending.empty')}</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -172,16 +183,16 @@ export const Discovery: React.FC = () => {
         <section className="py-16 border-t border-charcoal/5">
           <div className="container mx-auto px-6 text-center animate-fade-in-up animate-delay-500">
             <h2 className="text-2xl font-serif text-charcoal mb-4">
-              Ready to find your edge?
+              {t('discovery.cta.title')}
             </h2>
             <p className="text-charcoal/60 mb-8 max-w-md mx-auto">
-              Sign up for free and get 3 analysis credits to start discovering mispriced markets.
+              {t('discovery.cta.subtitle')}
             </p>
             <button
               onClick={() => authenticated ? navigate('/analyze') : login()}
               className="inline-flex items-center gap-2 px-6 py-3 bg-terracotta hover:bg-[#C05638] text-white font-medium rounded-lg transition-all hover:scale-105 active:scale-95"
             >
-              Get Started Free
+              {t('discovery.cta.button')}
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -190,7 +201,7 @@ export const Discovery: React.FC = () => {
         {/* Footer */}
         <footer className="py-8 border-t border-charcoal/5 mt-auto">
           <div className="container mx-auto px-6 text-center text-charcoal/40 text-xs font-serif">
-            &copy; {new Date().getFullYear()} PolyInsight. Analysis for the curious mind.
+            &copy; {new Date().getFullYear()} {t('layout.footer')}
           </div>
         </footer>
       </div>
@@ -217,6 +228,7 @@ function shortLabel(question: string): string {
 }
 
 const EventCard: React.FC<{ event: TrendingEvent; onAnalyze: () => void }> = ({ event, onAnalyze }) => {
+  const { t } = useTranslation()
   // Take first 2 markets (same order as Polymarket)
   const topMarkets = event.markets.slice(0, 2)
 
@@ -247,7 +259,7 @@ const EventCard: React.FC<{ event: TrendingEvent; onAnalyze: () => void }> = ({ 
           <div>
             <div className="flex items-baseline gap-2 mb-3">
               <span className="text-2xl font-semibold text-charcoal">{yesProb}%</span>
-              <span className="text-xs text-charcoal/40">chance</span>
+              <span className="text-xs text-charcoal/40">{t('discovery.trending.chance')}</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="text-center py-1.5 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium">
@@ -290,14 +302,14 @@ const EventCard: React.FC<{ event: TrendingEvent; onAnalyze: () => void }> = ({ 
       {/* Footer: Volume + Actions */}
       <div className="flex items-center justify-between pt-3 border-t border-charcoal/5">
         <span className="text-[11px] text-charcoal/40">
-          {formatVolume(event.volume)} Vol.
+          {formatVolume(event.volume)} {t('discovery.trending.vol')}
         </span>
         <div className="flex gap-1.5">
           <button
             onClick={onAnalyze}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-terracotta hover:bg-[#C05638] rounded-lg transition-colors"
           >
-            AI Analysis
+            {t('discovery.trending.aiAnalysis')}
             <ChevronRight className="w-3 h-3" />
           </button>
           <a

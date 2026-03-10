@@ -1,6 +1,7 @@
 import React from 'react'
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { LogOut, LayoutDashboard, History, Coins, Compass, User, Shield } from 'lucide-react'
@@ -10,6 +11,7 @@ import { AnimatedBackground } from './AnimatedBackground'
 
 export const Layout: React.FC = () => {
   const { authenticated, logout } = usePrivy()
+  const { t, i18n } = useTranslation()
   const { displayName, creditBalance, role, signOut } = useAuthStore()
   const { reset, stopAllPolling } = useAnalysisStore()
   const activeCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'polling').length)
@@ -25,9 +27,9 @@ export const Layout: React.FC = () => {
   }
 
   const navItems = [
-    { label: 'Discover', path: '/', icon: Compass },
-    { label: 'Analyze', path: '/analyze', icon: LayoutDashboard },
-    { label: 'History', path: '/history', icon: History },
+    { label: t('layout.nav.discover'), path: '/', icon: Compass },
+    { label: t('layout.nav.analyze'), path: '/analyze', icon: LayoutDashboard },
+    { label: t('layout.nav.history'), path: '/history', icon: History },
   ]
 
   if (!authenticated) {
@@ -60,7 +62,7 @@ export const Layout: React.FC = () => {
                 >
                   <Icon size={18} strokeWidth={isActive ? 2.5 : 2} />
                   <span>{item.label}</span>
-                  {item.label === 'Analyze' && activeCount > 0 && (
+                  {item.path === '/analyze' && activeCount > 0 && (
                     <span className="ml-0.5 text-[10px] bg-terracotta text-white rounded-full px-1.5 py-0.5 leading-none font-semibold animate-pulse">
                       {activeCount}
                     </span>
@@ -68,6 +70,17 @@ export const Layout: React.FC = () => {
                 </Link>
               )
             })}
+
+            <button
+              onClick={() => {
+                const newLang = i18n.language === 'zh' ? 'en' : 'zh'
+                i18n.changeLanguage(newLang)
+                localStorage.setItem('polyinsight-lang', newLang)
+              }}
+              className="text-xs font-medium text-charcoal/50 hover:text-charcoal transition-colors px-2 py-1 rounded hover:bg-charcoal/5"
+            >
+              {i18n.language === 'zh' ? 'EN' : '中文'}
+            </button>
 
             <div className="w-px h-5 bg-charcoal/10 mx-2" />
 
@@ -92,7 +105,7 @@ export const Layout: React.FC = () => {
                 )}
               >
                 <Shield size={16} />
-                <span>Admin</span>
+                <span>{t('layout.nav.admin')}</span>
               </Link>
             )}
 
@@ -113,7 +126,7 @@ export const Layout: React.FC = () => {
               className="flex items-center gap-2 text-sm font-medium text-charcoal/60 hover:text-terracotta transition-colors duration-200"
             >
               <LogOut size={18} />
-              <span>Sign Out</span>
+              <span>{t('layout.nav.signOut')}</span>
             </button>
           </nav>
         </div>
@@ -125,7 +138,7 @@ export const Layout: React.FC = () => {
 
       <footer className="py-8 border-t border-charcoal/5 mt-auto">
         <div className="container mx-auto px-6 text-center text-charcoal/40 text-xs font-serif">
-          &copy; {new Date().getFullYear()} PolyInsight. Analysis for the curious mind.
+          &copy; {new Date().getFullYear()} {t('layout.footer')}
         </div>
       </footer>
     </div>

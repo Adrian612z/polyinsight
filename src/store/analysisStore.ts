@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { useShallow } from 'zustand/react/shallow'
 import { supabase } from '../lib/supabase'
 import { api } from '../lib/backend'
 import { useAuthStore } from './authStore'
+import i18n from '../i18n'
 
 // --- Types ---
 
@@ -39,7 +41,7 @@ type AnalysisStore = AnalysisState & AnalysisActions
 // --- Constants ---
 
 const POLL_INTERVAL = 3000
-const MAX_POLL_TIME = 5 * 60 * 1000       // 5 minutes (reduced from 10)
+const MAX_POLL_TIME = 5 * 60 * 1000       // 5 minutes
 const STALE_THRESHOLD = 90_000             // 90 seconds no progress = stalled
 
 // --- Module-level timer + progress tracking ---
@@ -56,23 +58,135 @@ function stopSessionPolling(recordId: string) {
   lastProgress.delete(recordId)
 }
 
-const STEP_LABELS: Record<string, string> = {
-  info: 'Event Info Extraction',
-  probability: 'Probability Analysis',
-  risk: 'Risk Control Audit',
-  report: 'Report Writer',
-}
-
 function getTimeoutMessage(partialResult: string | null): string {
-  if (!partialResult) return 'Analysis failed to start. The workflow may be unavailable.'
+  if (!partialResult) return i18n.t('store.error.failedToStart')
   const stepKeys: string[] = []
   const regex = /<!--STEP:(\w+)-->/g
   let m
   while ((m = regex.exec(partialResult)) !== null) stepKeys.push(m[1])
-  if (stepKeys.length === 0) return 'Analysis failed during initialization.'
-  if (stepKeys.length >= 4) return 'Analysis nearly complete but the final report was not generated.'
-  const lastStep = STEP_LABELS[stepKeys[stepKeys.length - 1]] || stepKeys[stepKeys.length - 1]
-  return `Analysis stalled after "${lastStep}". Partial results are shown below.`
+  if (stepKeys.length === 0) return i18n.t('store.error.failedInit')
+  if (stepKeys.length >= 4) return i18n.t('store.error.nearlyComplete')
+  const lastStep = i18n.t('store.step.' + stepKeys[stepKeys.length - 1]) || stepKeys[stepKeys.length - 1]
+  return i18n.t('store.error.stalled', { step: lastStep })
+}
+
+// --- Module-level polling function (uses store directly) ---
+
+function startPollingForSession(recordId: string) {
+  if (pollTimers.has(recordId)) return // already polling
+
+  const s = useAnalysisStore.getState().sessions[recordId]
+  if (!s || s.status !== 'polling') return
+
+  lastProgress.set(recordId, { result: s.partialResult, time: Date.now() })
+
+  const poll = async () => {
+    const sessions = useAnalysisStore.getState().sessions
+    const session = sessions[recordId]
+    if (!session || session.status !== 'polling') return
+
+    const elapsed = Date.now() - session.startedAt
+
+    // Timeout check
+    if (elapsed > MAX_POLL_TIME) {
+      stopSessionPolling(recordId)
+      useAnalysisStore.setState({
+        sessions: {
+          ...useAnalysisStore.getState().sessions,
+          [recordId]: {
+            ...session,
+            status: 'failed' as const,
+            error: getTimeoutMessage(session.partialResult),
+            canRetry: true,
+          },
+        },
+      })
+      return
+    }
+
+    // Staleness check
+    const progress = lastProgress.get(recordId)
+    if (progress && session.partialResult && elapsed > 30_000) {
+      if (Date.now() - progress.time > STALE_THRESHOLD) {
+        stopSessionPolling(recordId)
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...session,
+              status: 'failed' as const,
+              error: getTimeoutMessage(session.partialResult),
+              canRetry: true,
+            },
+          },
+        })
+        return
+      }
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('analysis_records')
+        .select('status, analysis_result')
+        .eq('id', recordId)
+        .single()
+
+      if (error) throw error
+
+      if (data.status === 'completed' && data.analysis_result) {
+        stopSessionPolling(recordId)
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...session,
+              status: 'completed' as const,
+              result: data.analysis_result,
+              partialResult: null,
+            },
+          },
+        })
+        return
+      }
+
+      if (data.status === 'failed') {
+        stopSessionPolling(recordId)
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...session,
+              status: 'failed' as const,
+              error: getTimeoutMessage(session.partialResult),
+              canRetry: true,
+            },
+          },
+        })
+        return
+      }
+
+      // Update partial result + progress tracking
+      if (data.analysis_result) {
+        const prev = lastProgress.get(recordId)
+        if (!prev || prev.result !== data.analysis_result) {
+          lastProgress.set(recordId, { result: data.analysis_result, time: Date.now() })
+        }
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: { ...useAnalysisStore.getState().sessions[recordId], partialResult: data.analysis_result },
+          },
+        })
+      }
+
+      pollTimers.set(recordId, setTimeout(poll, POLL_INTERVAL))
+    } catch (err) {
+      console.error('Polling error:', err)
+      pollTimers.set(recordId, setTimeout(poll, POLL_INTERVAL))
+    }
+  }
+
+  pollTimers.set(recordId, setTimeout(poll, 2000))
 }
 
 // --- Initial state ---
@@ -143,14 +257,14 @@ export const useAnalysisStore = create<AnalysisStore>()(
         const { inputUrl } = get()
 
         if (!inputUrl) {
-          return { success: false, message: 'Please enter a URL' }
+          return { success: false, message: i18n.t('store.error.noUrl') }
         }
 
         // Clear input immediately so user can type next URL
         set({ inputUrl: '' })
 
         try {
-          const res = await api.createAnalysis(inputUrl)
+          const res = await api.createAnalysis(inputUrl, i18n.language)
           const recordId = res.record_id
 
           // Update credit balance
@@ -175,116 +289,8 @@ export const useAnalysisStore = create<AnalysisStore>()(
             activeSessionId: recordId,
           })
 
-          // Start polling for this session
-          lastProgress.set(recordId, { result: null, time: Date.now() })
-
-          const pollForResult = async () => {
-            const { sessions } = get()
-            const s = sessions[recordId]
-            if (!s || s.status !== 'polling') return
-
-            const elapsed = Date.now() - s.startedAt
-
-            // Timeout check
-            if (elapsed > MAX_POLL_TIME) {
-              stopSessionPolling(recordId)
-              set({
-                sessions: {
-                  ...get().sessions,
-                  [recordId]: {
-                    ...s,
-                    status: 'failed',
-                    error: getTimeoutMessage(s.partialResult),
-                    canRetry: true,
-                  },
-                },
-              })
-              return
-            }
-
-            // Staleness check
-            const progress = lastProgress.get(recordId)
-            if (progress && s.partialResult && elapsed > 30_000) {
-              if (Date.now() - progress.time > STALE_THRESHOLD) {
-                stopSessionPolling(recordId)
-                set({
-                  sessions: {
-                    ...get().sessions,
-                    [recordId]: {
-                      ...s,
-                      status: 'failed',
-                      error: getTimeoutMessage(s.partialResult),
-                      canRetry: true,
-                    },
-                  },
-                })
-                return
-              }
-            }
-
-            try {
-              const { data, error } = await supabase
-                .from('analysis_records')
-                .select('status, analysis_result')
-                .eq('id', recordId)
-                .single()
-
-              if (error) throw error
-
-              if (data.status === 'completed' && data.analysis_result) {
-                stopSessionPolling(recordId)
-                set({
-                  sessions: {
-                    ...get().sessions,
-                    [recordId]: {
-                      ...s,
-                      status: 'completed',
-                      result: data.analysis_result,
-                      partialResult: null,
-                    },
-                  },
-                })
-                return
-              }
-
-              if (data.status === 'failed') {
-                stopSessionPolling(recordId)
-                set({
-                  sessions: {
-                    ...get().sessions,
-                    [recordId]: {
-                      ...s,
-                      status: 'failed',
-                      error: getTimeoutMessage(s.partialResult),
-                      canRetry: true,
-                    },
-                  },
-                })
-                return
-              }
-
-              // Update partial result + progress tracking
-              if (data.analysis_result) {
-                const prev = lastProgress.get(recordId)
-                if (!prev || prev.result !== data.analysis_result) {
-                  lastProgress.set(recordId, { result: data.analysis_result, time: Date.now() })
-                }
-                set({
-                  sessions: {
-                    ...get().sessions,
-                    [recordId]: { ...get().sessions[recordId], partialResult: data.analysis_result },
-                  },
-                })
-              }
-
-              pollTimers.set(recordId, setTimeout(pollForResult, POLL_INTERVAL))
-            } catch (err) {
-              console.error('Polling error:', err)
-              pollTimers.set(recordId, setTimeout(pollForResult, POLL_INTERVAL))
-            }
-          }
-
-          pollTimers.set(recordId, setTimeout(pollForResult, 2000))
+          // Start polling
+          startPollingForSession(recordId)
 
           return { success: true, message: 'Analysis started...', recordId }
         } catch (err: unknown) {
@@ -295,7 +301,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
           const error = err as Error & { status?: number; code?: string }
           let errorMsg = error.message || 'Request failed'
           if (error.status === 402) {
-            errorMsg = 'Insufficient credits. Please top up to continue.'
+            errorMsg = i18n.t('store.error.insufficient')
           }
 
           return { success: false, message: errorMsg }
@@ -325,6 +331,8 @@ export const useAnalysisStore = create<AnalysisStore>()(
       name: 'analysis-storage',
       partialize: (state) => ({
         inputUrl: state.inputUrl,
+        sessions: state.sessions,
+        activeSessionId: state.activeSessionId,
       }),
       merge: (persisted, current) => {
         const p = (persisted || {}) as Record<string, unknown>
@@ -332,11 +340,25 @@ export const useAnalysisStore = create<AnalysisStore>()(
         const inputUrl = (typeof p.inputUrl === 'string' ? p.inputUrl : '') ||
                          (typeof p.url === 'string' ? p.url : '') ||
                          (current as AnalysisStore).inputUrl
+        // Restore sessions safely
+        const sessions = (p.sessions && typeof p.sessions === 'object' && !Array.isArray(p.sessions))
+          ? p.sessions as Record<string, AnalysisSession>
+          : {}
+        const activeSessionId = (typeof p.activeSessionId === 'string') ? p.activeSessionId : null
         return {
           ...(current as AnalysisStore),
           inputUrl,
-          sessions: {},
-          activeSessionId: null,
+          sessions,
+          activeSessionId,
+        }
+      },
+      onRehydrateStorage: () => (state) => {
+        if (!state) return
+        // Resume polling for any sessions that were in-progress before refresh
+        for (const session of Object.values(state.sessions)) {
+          if (session.status === 'polling') {
+            startPollingForSession(session.id)
+          }
         }
       },
     }
@@ -352,15 +374,17 @@ export function useActiveSession(): AnalysisSession | null {
 
 /** Get all sessions as a sorted array (polling first, then by startedAt desc) */
 export function useSessionList(): AnalysisSession[] {
-  return useAnalysisStore((s) => {
-    const list = Object.values(s.sessions)
-    list.sort((a, b) => {
-      if (a.status === 'polling' && b.status !== 'polling') return -1
-      if (b.status === 'polling' && a.status !== 'polling') return 1
-      return b.startedAt - a.startedAt
+  return useAnalysisStore(
+    useShallow((s) => {
+      const list = Object.values(s.sessions)
+      list.sort((a, b) => {
+        if (a.status === 'polling' && b.status !== 'polling') return -1
+        if (b.status === 'polling' && a.status !== 'polling') return 1
+        return b.startedAt - a.startedAt
+      })
+      return list
     })
-    return list
-  })
+  )
 }
 
 /** Check if any session is actively polling */

@@ -28,6 +28,7 @@ export const config = {
   privyAppSecret: process.env.PRIVY_APP_SECRET || '',
 
   n8nWebhookUrl: process.env.N8N_WEBHOOK_URL || 'http://127.0.0.1:5678/webhook/polymarket-analysis',
+  n8nWebhookUrlZh: process.env.N8N_WEBHOOK_URL_ZH || 'http://127.0.0.1:5678/webhook/polymarket-analysis-zh',
 
   // Credit cost per analysis (in centicredits: 100 = 1.00 credit)
   analysisCost: 100,
@@ -35,4 +36,7 @@ export const config = {
   signupBonus: 300,
   // Referral commission rate (10%)
   referralCommissionRate: 0.10,
+
+  adminPassword: process.env.ADMIN_PASSWORD || 'polyinsight_admin_2024',
+  adminJwtSecret: process.env.ADMIN_JWT_SECRET || 'pi_adm_jwt_default_secret',
 }

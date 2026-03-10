@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronUp, ExternalLink, ShieldCheck, Shield, ShieldAlert, ShieldX } from 'lucide-react'
 
 interface DecisionOption {
@@ -38,49 +39,56 @@ function parseResult(result: string): { decision: DecisionData | null; detail: s
 
 const riskConfig = {
   safe: {
-    label: 'Safe',
+    labelKey: 'decision.risk.safe.label',
     emoji: '🟢',
     icon: ShieldCheck,
     bg: 'bg-emerald-50',
     border: 'border-emerald-200',
     text: 'text-emerald-700',
     badge: 'bg-emerald-100 text-emerald-800',
-    desc: 'Clear rules, unambiguous settlement',
+    descKey: 'decision.risk.safe.desc',
   },
   caution: {
-    label: 'Caution',
+    labelKey: 'decision.risk.caution.label',
     emoji: '🟡',
     icon: Shield,
     bg: 'bg-amber-50',
     border: 'border-amber-200',
     text: 'text-amber-700',
     badge: 'bg-amber-100 text-amber-800',
-    desc: 'Minor time/oracle risk present',
+    descKey: 'decision.risk.caution.desc',
   },
   danger: {
-    label: 'Danger',
+    labelKey: 'decision.risk.danger.label',
     emoji: '🔴',
     icon: ShieldAlert,
     bg: 'bg-red-50',
     border: 'border-red-200',
     text: 'text-red-600',
     badge: 'bg-red-100 text-red-700',
-    desc: 'Rule traps present, may win on probability but lose on rules',
+    descKey: 'decision.risk.danger.desc',
   },
   reject: {
-    label: 'Reject',
+    labelKey: 'decision.risk.reject.label',
     emoji: '⚫',
     icon: ShieldX,
     bg: 'bg-gray-100',
     border: 'border-gray-300',
     text: 'text-gray-700',
     badge: 'bg-gray-200 text-gray-800',
-    desc: 'Fatal wordplay, not recommended',
+    descKey: 'decision.risk.reject.desc',
   },
 }
 
 export { parseResult, riskConfig }
 export type { DecisionData }
+
+const directionMap: Record<string, string> = {
+  'Buy Yes': 'decision.direction.buyYes',
+  'Buy No': 'decision.direction.buyNo',
+  'Do not participate': 'decision.direction.doNotParticipate',
+  'Hold': 'decision.direction.hold',
+}
 
 interface DecisionCardProps {
   result: string
@@ -89,6 +97,7 @@ interface DecisionCardProps {
 
 export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) => {
   const [expanded, setExpanded] = useState(false)
+  const { t } = useTranslation()
   const { decision, detail } = useMemo(() => parseResult(result), [result])
 
   // Fallback: no structured data, just show markdown
@@ -110,7 +119,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
         <div>
           <h2 className="text-xl font-serif text-charcoal leading-tight">{decision.event}</h2>
           <p className="text-xs text-charcoal/50 mt-1">
-            Deadline: {decision.deadline}
+            {t('decision.deadline', { date: decision.deadline })}
           </p>
         </div>
 
@@ -118,17 +127,17 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
         <div className="space-y-2">
           {decision.options.map((opt) => {
             const diff = opt.ai - opt.market
-            const diffLabel = diff > 0 ? `Undervalued ${Math.abs(diff)}%` : diff < 0 ? `Overvalued ${Math.abs(diff)}%` : 'Even'
+            const diffLabel = diff > 0 ? t('decision.undervalued', { diff: Math.abs(diff) }) : diff < 0 ? t('decision.overvalued', { diff: Math.abs(diff) }) : t('decision.even')
             return (
               <div key={opt.name} className="flex items-center justify-between bg-white/60 rounded-lg px-4 py-2.5">
                 <span className="font-medium text-charcoal text-sm">{opt.name}</span>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-charcoal/60">
-                    Market <span className="font-mono font-semibold text-charcoal">{opt.market}%</span>
+                    {t('decision.market')} <span className="font-mono font-semibold text-charcoal">{opt.market}%</span>
                   </span>
                   <span className="text-charcoal/30">→</span>
                   <span className="text-charcoal/60">
-                    AI <span className="font-mono font-semibold text-charcoal">{opt.ai}%</span>
+                    {t('decision.ai')} <span className="font-mono font-semibold text-charcoal">{opt.ai}%</span>
                   </span>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                     diff > 0 ? 'bg-emerald-100 text-emerald-700' :
@@ -148,7 +157,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-lg">{risk.emoji}</span>
             <span className={`text-sm font-medium px-2.5 py-1 rounded-full ${risk.badge}`}>
-              {risk.label}
+              {t(risk.labelKey)}
             </span>
             <span className="text-sm text-charcoal/60">— {decision.risk_reason}</span>
           </div>
@@ -156,8 +165,8 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
 
         {/* Recommendation */}
         <div className="bg-white/80 rounded-lg px-4 py-3 border border-charcoal/5">
-          <div className="text-sm text-charcoal/60 mb-1">Recommendation</div>
-          <div className="font-medium text-charcoal">{decision.direction}</div>
+          <div className="text-sm text-charcoal/60 mb-1">{t('decision.recommendation')}</div>
+          <div className="font-medium text-charcoal">{directionMap[decision.direction] ? t(directionMap[decision.direction]) : decision.direction}</div>
           <div className="text-sm text-charcoal/60 mt-1">{decision.recommendation}</div>
         </div>
 
@@ -168,9 +177,9 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
             className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-charcoal/70 bg-white/60 hover:bg-white border border-charcoal/10 rounded-lg transition-colors"
           >
             {expanded ? (
-              <>Hide details <ChevronUp className="w-4 h-4" /></>
+              <>{t('decision.hideDetails')} <ChevronUp className="w-4 h-4" /></>
             ) : (
-              <>Show details <ChevronDown className="w-4 h-4" /></>
+              <>{t('decision.showDetails')} <ChevronDown className="w-4 h-4" /></>
             )}
           </button>
           {eventUrl && (
@@ -180,7 +189,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-terracotta hover:bg-[#C05638] rounded-lg transition-colors"
             >
-              View on Polymarket <ExternalLink className="w-4 h-4" />
+              {t('decision.viewOnPolymarket')} <ExternalLink className="w-4 h-4" />
             </a>
           )}
         </div>

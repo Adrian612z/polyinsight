@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { format } from 'date-fns'
-import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock } from 'lucide-react'
+import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock, Trash2 } from 'lucide-react'
 import { DecisionCard, parseResult, riskConfig } from '../components/DecisionCard'
 import { SkeletonList } from '../components/Skeleton'
+import { useToast } from '../components/Toast'
 
 interface AnalysisRecord {
   id: string
@@ -17,23 +19,55 @@ interface AnalysisRecord {
 
 const PAGE_SIZE = 10
 
-const statusConfig = {
-  completed: { label: 'Completed', className: 'text-terracotta bg-terracotta/5' },
-  pending: { label: 'Processing', className: 'text-charcoal/60 bg-charcoal/5' },
-  failed: { label: 'Failed', className: 'text-red-600 bg-red-50' },
-}
-
 export const History: React.FC = () => {
+  const { t } = useTranslation()
   const [records, setRecords] = useState<AnalysisRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [totalCount, setTotalCount] = useState(0)
   const [currentPage, setCurrentPage] = useState(1)
   const { privyUserId } = useAuthStore()
+  const statusConfig = {
+    completed: { label: t('history.status.completed'), className: 'text-terracotta bg-terracotta/5' },
+    pending: { label: t('history.status.pending'), className: 'text-charcoal/60 bg-charcoal/5' },
+    failed: { label: t('history.status.failed'), className: 'text-red-600 bg-red-50' },
+  }
   // Re-fetch when any session completes
   const completedCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'completed').length)
   const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null)
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
+  const toast = useToast()
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+
+  const deleteRecord = async (record: AnalysisRecord, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    if (deletingIds.has(record.id)) return
+
+    setDeletingIds((prev) => new Set(prev).add(record.id))
+    try {
+      const { error } = await supabase
+        .from('analysis_records')
+        .delete()
+        .eq('id', record.id)
+        .eq('user_id', privyUserId)
+
+      if (error) throw error
+
+      setRecords((prev) => prev.filter((r) => r.id !== record.id))
+      setTotalCount((prev) => prev - 1)
+      if (selectedRecord?.id === record.id) setSelectedRecord(null)
+      toast.success(t('history.toast.deleted'))
+    } catch (err) {
+      console.error('Delete failed:', err)
+      toast.error(t('history.toast.deleteFailed'))
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(record.id)
+        return next
+      })
+    }
+  }
 
   useEffect(() => {
     const fetchRecords = async () => {
@@ -84,9 +118,9 @@ export const History: React.FC = () => {
         <div className="p-4 border-b border-charcoal/5 bg-warm-white/50">
           <h2 className="font-serif text-lg text-charcoal flex items-center gap-2">
             <Clock className="w-4 h-4 text-charcoal/40" />
-            History
+            {t('history.title')}
           </h2>
-          <p className="text-xs text-charcoal/40 mt-1 pl-6">{totalCount} records</p>
+          <p className="text-xs text-charcoal/40 mt-1 pl-6">{t('history.records', { count: totalCount })}</p>
         </div>
 
         <div className="overflow-y-auto flex-1">
@@ -95,7 +129,7 @@ export const History: React.FC = () => {
           ) : records.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-charcoal/40">
               <Inbox className="w-8 h-8 mb-2 opacity-50" />
-              <p className="text-sm">No records found</p>
+              <p className="text-sm">{t('history.empty')}</p>
             </div>
           ) : (
             <div className="divide-y divide-charcoal/5">
@@ -127,12 +161,22 @@ export const History: React.FC = () => {
                           if (!decision) return null
                           const rc = riskConfig[decision.risk]
                           if (!rc) return null
-                          return <span className="text-xs" title={rc.desc}>{rc.emoji}</span>
+                          return <span className="text-xs" title={t(rc.descKey)}>{rc.emoji}</span>
                         })()}
                       </div>
-                      <span className="text-[10px] text-charcoal/40 font-mono">
-                        {format(new Date(record.created_at), 'MM/dd HH:mm')}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => deleteRecord(record, e)}
+                          disabled={deletingIds.has(record.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-50"
+                          title="Delete record"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                        <span className="text-[10px] text-charcoal/40 font-mono">
+                          {format(new Date(record.created_at), 'MM/dd HH:mm')}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )
@@ -173,19 +217,28 @@ export const History: React.FC = () => {
           <>
             <div className="p-6 border-b border-charcoal/5 flex justify-between items-start bg-warm-white/30">
               <div>
-                <h3 className="font-serif text-xl text-charcoal mb-1">Analysis Report</h3>
+                <h3 className="font-serif text-xl text-charcoal mb-1">{t('history.report.title')}</h3>
                 <p className="text-xs text-charcoal/40 font-mono">
-                  Generated on {format(new Date(selectedRecord.created_at), 'yyyy-MM-dd HH:mm')}
+                  {t('history.report.generated', { date: format(new Date(selectedRecord.created_at), 'yyyy-MM-dd HH:mm') })}
                 </p>
               </div>
-              <a
-                href={selectedRecord.event_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-terracotta border border-terracotta/20 rounded hover:bg-terracotta hover:text-white transition-colors"
-              >
-                View Source <ExternalLink size={12} className="ml-1.5" />
-              </a>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => deleteRecord(selectedRecord)}
+                  disabled={deletingIds.has(selectedRecord.id)}
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-charcoal/40 border border-charcoal/10 rounded hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={12} className="mr-1.5" /> {t('history.report.delete')}
+                </button>
+                <a
+                  href={selectedRecord.event_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-terracotta border border-terracotta/20 rounded hover:bg-terracotta hover:text-white transition-colors"
+                >
+                  {t('history.report.viewSource')} <ExternalLink size={12} className="ml-1.5" />
+                </a>
+              </div>
             </div>
             
             <div className="p-8 overflow-y-auto flex-1">
@@ -194,7 +247,7 @@ export const History: React.FC = () => {
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-charcoal/30">
                   <Clock className="w-12 h-12 mb-3 opacity-20" />
-                  <p className="text-sm font-serif italic">Analysis pending or failed...</p>
+                  <p className="text-sm font-serif italic">{t('history.report.pendingText')}</p>
                 </div>
               )}
             </div>
@@ -204,7 +257,7 @@ export const History: React.FC = () => {
             <div className="w-16 h-16 border border-charcoal/10 rounded-full flex items-center justify-center mb-4">
               <Inbox className="w-8 h-8 opacity-40" />
             </div>
-            <p className="text-sm font-serif">Select a record to view details</p>
+            <p className="text-sm font-serif">{t('history.report.selectPrompt')}</p>
           </div>
         )}
       </div>

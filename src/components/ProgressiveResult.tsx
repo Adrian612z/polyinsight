@@ -1,13 +1,7 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
+import { useTranslation } from 'react-i18next'
 import { Check, Loader2, Circle, AlertTriangle } from 'lucide-react'
-
-const STEP_LABELS: Record<string, string> = {
-  info: 'Extracting event info',
-  probability: 'Probability analysis',
-  risk: 'Risk audit',
-  report: 'Generating report',
-}
 
 const ALL_STEPS = ['info', 'probability', 'risk', 'report']
 
@@ -36,6 +30,7 @@ interface ProgressiveResultProps {
 }
 
 export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialResult, stalled }) => {
+  const { t } = useTranslation()
   const completedSteps = parseSteps(partialResult)
   const completedKeys = Array.from(completedSteps.keys())
   const currentStepIndex = completedKeys.length
@@ -76,14 +71,14 @@ export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialRes
                 isInProgress ? 'text-terracotta' :
                 'text-charcoal/40'
               }`}>
-                {STEP_LABELS[stepKey]}
+                {t('progress.' + stepKey)}
               </span>
               <span className={`text-xs ml-auto ${
                 isDone ? 'text-emerald-600' :
                 isInProgress ? (stalled ? 'text-amber-500' : 'text-terracotta animate-pulse') :
                 'text-charcoal/30'
               }`}>
-                {isDone ? 'Done' : isInProgress ? (stalled ? 'Stalled' : 'In progress...') : 'Waiting'}
+                {isDone ? t('progress.status.done') : isInProgress ? (stalled ? t('progress.status.stalled') : t('progress.status.inProgress')) : t('progress.status.waiting')}
               </span>
             </div>
 

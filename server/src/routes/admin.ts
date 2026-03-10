@@ -1,15 +1,91 @@
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
+import jwt from 'jsonwebtoken'
+import { PrivyClient } from '@privy-io/server-auth'
 import { supabase } from '../services/supabase.js'
-import { authMiddleware } from '../middleware/auth.js'
-import { adminMiddleware } from '../middleware/admin.js'
+import { config } from '../config.js'
 import { grantCredits } from '../services/credit.js'
 
 const router = Router()
+const privy = new PrivyClient(config.privyAppId, config.privyAppSecret)
 
-// All admin routes require auth + admin role
-router.use(authMiddleware, adminMiddleware)
+// ─── Admin Login (no auth required) ────────────────────────────────
+router.post('/login', async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body
+    if (!email || !password) {
+      res.status(400).json({ error: 'Email and password required' })
+      return
+    }
 
-// GET /api/admin/dashboard - Overview stats
+    if (password !== config.adminPassword) {
+      res.status(401).json({ error: 'Invalid credentials' })
+      return
+    }
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, display_name, role')
+      .eq('email', email)
+      .eq('role', 'admin')
+      .single()
+
+    if (error || !user) {
+      res.status(401).json({ error: 'Invalid credentials' })
+      return
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, role: 'admin' },
+      config.adminJwtSecret,
+      { expiresIn: '24h' }
+    )
+
+    res.json({ token, user })
+  } catch (err) {
+    console.error('Admin login error:', err)
+    res.status(500).json({ error: 'Login failed' })
+  }
+})
+
+// ─── Combined Admin Auth Middleware ────────────────────────────────
+async function adminAuth(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization || ''
+
+  // Admin JWT
+  if (authHeader.startsWith('Admin ')) {
+    try {
+      const decoded = jwt.verify(authHeader.slice(6), config.adminJwtSecret) as { userId: string; role: string }
+      if (decoded.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return }
+      req.userId = decoded.userId
+      next()
+      return
+    } catch {
+      res.status(401).json({ error: 'Invalid or expired token' })
+      return
+    }
+  }
+
+  // Privy Bearer token (for main frontend admin pages)
+  if (authHeader.startsWith('Bearer ')) {
+    try {
+      const claims = await privy.verifyAuthToken(authHeader.slice(7))
+      req.userId = claims.userId
+      const { data: user } = await supabase.from('users').select('role').eq('id', req.userId).single()
+      if (user?.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return }
+      next()
+      return
+    } catch {
+      res.status(401).json({ error: 'Session expired' })
+      return
+    }
+  }
+
+  res.status(401).json({ error: 'Unauthorized' })
+}
+
+router.use(adminAuth)
+
+// ─── Dashboard Stats ───────────────────────────────────────────────
 router.get('/dashboard', async (_req: Request, res: Response) => {
   try {
     const now = new Date()
@@ -51,20 +127,92 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
   }
 })
 
-// GET /api/admin/users - List all users
+// ─── Dashboard Charts (30 days) ────────────────────────────────────
+router.get('/dashboard/charts', async (_req: Request, res: Response) => {
+  try {
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+    const [{ data: users }, { data: analyses }, { data: transactions }] = await Promise.all([
+      supabase.from('users').select('created_at').gte('created_at', thirtyDaysAgo),
+      supabase.from('analysis_records').select('created_at, status').gte('created_at', thirtyDaysAgo),
+      supabase.from('credit_transactions').select('created_at, amount, type').gte('created_at', thirtyDaysAgo),
+    ])
+
+    // Aggregate by date
+    const dateMap = (items: any[], fn: (map: Record<string, any>, item: any) => void) => {
+      const map: Record<string, any> = {}
+      for (const item of items || []) {
+        const date = item.created_at?.slice(0, 10)
+        if (!date) continue
+        if (!map[date]) map[date] = {}
+        fn(map[date], item)
+      }
+      return map
+    }
+
+    const userGrowth = dateMap(users || [], (entry) => {
+      entry.count = (entry.count || 0) + 1
+    })
+
+    const analysisStats = dateMap(analyses || [], (entry, item) => {
+      entry[item.status] = (entry[item.status] || 0) + 1
+    })
+
+    const creditFlow = dateMap(transactions || [], (entry, item) => {
+      if (item.amount > 0) entry.income = (entry.income || 0) + item.amount
+      else entry.spent = (entry.spent || 0) + Math.abs(item.amount)
+    })
+
+    // Fill in dates for last 30 days
+    const dates: string[] = []
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
+      dates.push(d.toISOString().slice(0, 10))
+    }
+
+    res.json({
+      userGrowth: dates.map(d => ({ date: d, count: userGrowth[d]?.count || 0 })),
+      analysisStats: dates.map(d => ({
+        date: d,
+        completed: analysisStats[d]?.completed || 0,
+        failed: analysisStats[d]?.failed || 0,
+        pending: analysisStats[d]?.pending || 0,
+      })),
+      creditFlow: dates.map(d => ({
+        date: d,
+        income: creditFlow[d]?.income || 0,
+        spent: creditFlow[d]?.spent || 0,
+      })),
+    })
+  } catch (err) {
+    console.error('Charts error:', err)
+    res.status(500).json({ error: 'Failed to fetch chart data' })
+  }
+})
+
+// ─── Users List (with search & filter) ─────────────────────────────
 router.get('/users', async (req: Request, res: Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1
     const limit = 50
     const from = (page - 1) * limit
     const to = from + limit - 1
+    const search = (req.query.search as string) || ''
+    const role = (req.query.role as string) || ''
 
-    const { data, error, count } = await supabase
+    let query = supabase
       .from('users')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range(from, to)
 
+    if (search) {
+      query = query.or(`email.ilike.%${search}%,display_name.ilike.%${search}%`)
+    }
+    if (role) {
+      query = query.eq('role', role)
+    }
+
+    const { data, error, count } = await query.range(from, to)
     if (error) throw error
 
     res.json({
@@ -79,11 +227,67 @@ router.get('/users', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/admin/credits/grant - Grant credits to a user
+// ─── User Detail ───────────────────────────────────────────────────
+router.get('/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+
+    const [{ data: user }, { data: analyses }, { data: transactions }] = await Promise.all([
+      supabase.from('users').select('*').eq('id', id).single(),
+      supabase.from('analysis_records')
+        .select('id, event_url, status, credits_charged, created_at')
+        .eq('user_id', id)
+        .order('created_at', { ascending: false })
+        .limit(20),
+      supabase.from('credit_transactions')
+        .select('*')
+        .eq('user_id', id)
+        .order('created_at', { ascending: false })
+        .limit(50),
+    ])
+
+    if (!user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    res.json({ user, analyses, transactions })
+  } catch (err) {
+    console.error('User detail error:', err)
+    res.status(500).json({ error: 'Failed to fetch user detail' })
+  }
+})
+
+// ─── Update User ───────────────────────────────────────────────────
+router.put('/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params
+    const { role, display_name, credit_balance } = req.body
+
+    const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+    if (role !== undefined) updates.role = role
+    if (display_name !== undefined) updates.display_name = display_name
+    if (credit_balance !== undefined) updates.credit_balance = credit_balance
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (error) throw error
+    res.json({ user: data })
+  } catch (err) {
+    console.error('Update user error:', err)
+    res.status(500).json({ error: 'Failed to update user' })
+  }
+})
+
+// ─── Grant Credits ─────────────────────────────────────────────────
 router.post('/credits/grant', async (req: Request, res: Response) => {
   try {
     const { userId, amount, description } = req.body
-
     if (!userId || !amount || amount <= 0) {
       res.status(400).json({ error: 'Invalid parameters' })
       return
@@ -104,20 +308,29 @@ router.post('/credits/grant', async (req: Request, res: Response) => {
   }
 })
 
-// GET /api/admin/analyses - List all analyses
+// ─── Analyses List (with search & filter) ──────────────────────────
 router.get('/analyses', async (req: Request, res: Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1
     const limit = 50
     const from = (page - 1) * limit
     const to = from + limit - 1
+    const search = (req.query.search as string) || ''
+    const status = (req.query.status as string) || ''
 
-    const { data, error, count } = await supabase
+    let query = supabase
       .from('analysis_records')
       .select('id, user_id, event_url, status, credits_charged, created_at', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range(from, to)
 
+    if (search) {
+      query = query.or(`event_url.ilike.%${search}%,user_id.ilike.%${search}%`)
+    }
+    if (status) {
+      query = query.eq('status', status)
+    }
+
+    const { data, error, count } = await query.range(from, to)
     if (error) throw error
 
     res.json({
@@ -130,6 +343,152 @@ router.get('/analyses', async (req: Request, res: Response) => {
     console.error('Admin analyses error:', err)
     res.status(500).json({ error: 'Failed to fetch analyses' })
   }
+})
+
+// ─── Analysis Detail ───────────────────────────────────────────────
+router.get('/analyses/:id', async (req: Request, res: Response) => {
+  try {
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .select('*')
+      .eq('id', req.params.id)
+      .single()
+
+    if (error || !data) {
+      res.status(404).json({ error: 'Analysis not found' })
+      return
+    }
+
+    // Also get user info
+    const { data: user } = await supabase
+      .from('users')
+      .select('id, email, display_name')
+      .eq('id', data.user_id)
+      .single()
+
+    res.json({ analysis: data, user })
+  } catch (err) {
+    console.error('Analysis detail error:', err)
+    res.status(500).json({ error: 'Failed to fetch analysis detail' })
+  }
+})
+
+// ─── Transactions List ─────────────────────────────────────────────
+router.get('/transactions', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1
+    const limit = 50
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    const type = (req.query.type as string) || ''
+    const userId = (req.query.userId as string) || ''
+
+    let query = supabase
+      .from('credit_transactions')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (type) query = query.eq('type', type)
+    if (userId) query = query.eq('user_id', userId)
+
+    const { data, error, count } = await query.range(from, to)
+    if (error) throw error
+
+    res.json({
+      transactions: data,
+      total: count,
+      page,
+      pages: Math.ceil((count || 0) / limit),
+    })
+  } catch (err) {
+    console.error('Transactions error:', err)
+    res.status(500).json({ error: 'Failed to fetch transactions' })
+  }
+})
+
+// ─── Featured Analyses ─────────────────────────────────────────────
+router.get('/featured', async (_req: Request, res: Response) => {
+  try {
+    const { data, error } = await supabase
+      .from('featured_analyses')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+    res.json({ featured: data })
+  } catch (err) {
+    console.error('Featured error:', err)
+    res.status(500).json({ error: 'Failed to fetch featured' })
+  }
+})
+
+router.post('/featured', async (req: Request, res: Response) => {
+  try {
+    const { event_slug, event_title, category, polymarket_url, analysis_record_id, decision_data, mispricing_score } = req.body
+
+    const { data, error } = await supabase
+      .from('featured_analyses')
+      .insert({
+        event_slug,
+        event_title,
+        category,
+        polymarket_url,
+        analysis_record_id: analysis_record_id || null,
+        decision_data: decision_data || null,
+        mispricing_score: mispricing_score || null,
+        is_active: true,
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+    res.json({ featured: data })
+  } catch (err) {
+    console.error('Add featured error:', err)
+    res.status(500).json({ error: 'Failed to add featured' })
+  }
+})
+
+router.put('/featured/:id', async (req: Request, res: Response) => {
+  try {
+    const { data, error } = await supabase
+      .from('featured_analyses')
+      .update(req.body)
+      .eq('id', req.params.id)
+      .select()
+      .single()
+
+    if (error) throw error
+    res.json({ featured: data })
+  } catch (err) {
+    console.error('Update featured error:', err)
+    res.status(500).json({ error: 'Failed to update featured' })
+  }
+})
+
+router.delete('/featured/:id', async (req: Request, res: Response) => {
+  try {
+    const { error } = await supabase
+      .from('featured_analyses')
+      .delete()
+      .eq('id', req.params.id)
+
+    if (error) throw error
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Delete featured error:', err)
+    res.status(500).json({ error: 'Failed to delete featured' })
+  }
+})
+
+// ─── Settings ──────────────────────────────────────────────────────
+router.get('/settings', async (_req: Request, res: Response) => {
+  res.json({
+    analysisCost: config.analysisCost,
+    signupBonus: config.signupBonus,
+    referralCommissionRate: config.referralCommissionRate,
+    n8nWebhookUrl: config.n8nWebhookUrl,
+  })
 })
 
 export default router

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { Send, Loader2, AlertCircle, RefreshCw, Sparkles, X, StopCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { DecisionCard } from '../components/DecisionCard'
 import { ProgressiveResult } from '../components/ProgressiveResult'
@@ -8,6 +9,7 @@ import { useAnalysisStore, useSessionList, type AnalysisSession } from '../store
 import { useToast } from '../components/Toast'
 
 export const Analyze: React.FC = () => {
+  const { t } = useTranslation()
   const { privyUserId } = useAuthStore()
   const { inputUrl, setUrl, activeSessionId, setActiveSession, startAnalysis, cancelAnalysis, retrySession, removeSession } = useAnalysisStore()
   const sessions = useSessionList()
@@ -29,7 +31,7 @@ export const Analyze: React.FC = () => {
     for (const s of sessions) {
       const prev = prevSessionStatuses.current[s.id]
       if (prev === 'polling' && s.status === 'completed') {
-        toast.success('Analysis completed!')
+        toast.success(t('analyze.toast.completed'))
       }
       prevSessionStatuses.current[s.id] = s.status
     }
@@ -43,7 +45,7 @@ export const Analyze: React.FC = () => {
 
     const res = await startAnalysis()
     if (res.success) {
-      toast.info(res.message || 'Analysis started...')
+      toast.info(res.message || t('analyze.toast.started'))
     } else if (res.message) {
       toast.error(res.message)
     }
@@ -61,9 +63,9 @@ export const Analyze: React.FC = () => {
         <div className="space-y-6">
           <div className="text-center space-y-2">
             <h1 className="text-4xl font-serif text-charcoal transition-all duration-700">
-              Analyze Event
+              {t('analyze.title')}
             </h1>
-            <p className="text-charcoal/60 font-light">Paste a Polymarket event URL to get started.</p>
+            <p className="text-charcoal/60 font-light">{t('analyze.subtitle')}</p>
           </div>
 
           <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
@@ -72,7 +74,7 @@ export const Analyze: React.FC = () => {
                 type="url"
                 id="url"
                 required
-                placeholder="https://polymarket.com/event/..."
+                placeholder={t('analyze.placeholder')}
                 className={`block w-full py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200 ${inputUrl ? 'px-6 pr-[7.5rem]' : 'px-6 pr-24'}`}
                 value={inputUrl}
                 onChange={(e) => setUrl(e.target.value)}
@@ -126,9 +128,12 @@ function extractSlug(url: string): string {
 }
 
 function countSteps(partialResult: string | null): { done: number; total: number } {
-  if (!partialResult) return { done: 0, total: 4 }
+  const total = 4
+  if (!partialResult) return { done: 0, total }
   const matches = partialResult.match(/<!--STEP:\w+-->/g)
-  return { done: matches ? matches.length : 0, total: 4 }
+  if (!matches) return { done: 0, total }
+  const unique = new Set(matches)
+  return { done: Math.min(unique.size, total), total }
 }
 
 interface SessionCardProps {
@@ -143,6 +148,7 @@ interface SessionCardProps {
 const SessionCard: React.FC<SessionCardProps> = ({
   session, isExpanded, onToggle, onCancel, onRetry, onRemove,
 }) => {
+  const { t } = useTranslation()
   const { done, total } = countSteps(session.partialResult)
   const isPolling = session.status === 'polling'
   const isCompleted = session.status === 'completed'
@@ -183,10 +189,10 @@ const SessionCard: React.FC<SessionCardProps> = ({
           isFailed ? 'text-red-400' :
           'text-charcoal/40'
         }`}>
-          {isPolling && `Step ${done}/${total}`}
-          {isCompleted && 'Done'}
-          {isFailed && 'Failed'}
-          {isCancelled && 'Cancelled'}
+          {isPolling && t('analyze.status.step', { done, total })}
+          {isCompleted && t('analyze.status.done')}
+          {isFailed && t('analyze.status.failed')}
+          {isCancelled && t('analyze.status.cancelled')}
         </span>
 
         {/* Expand chevron */}
@@ -209,7 +215,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
                 <div className="text-center py-6">
                   <Sparkles className="h-6 w-6 text-terracotta animate-pulse mx-auto" />
                   <div className="mt-3 text-sm text-charcoal/60 font-light">
-                    Gathering market sentiment and related news...
+                    {t('analyze.gathering')}
                   </div>
                 </div>
               )}
@@ -219,7 +225,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-charcoal/50 bg-white border border-charcoal/10 rounded-lg hover:border-red-300 hover:text-red-500 transition-all"
                 >
                   <StopCircle className="h-4 w-4" />
-                  Cancel
+                  {t('analyze.cancel')}
                 </button>
               </div>
             </div>
@@ -235,7 +241,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Dismiss
+                  {t('analyze.dismiss')}
                 </button>
               </div>
             </div>
@@ -247,7 +253,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               <div className="bg-red-50 border border-red-100 rounded-lg p-4 flex items-start gap-3">
                 <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <h3 className="text-sm font-medium text-red-600">Analysis Failed</h3>
+                  <h3 className="text-sm font-medium text-red-600">{t('analyze.failed.title')}</h3>
                   <p className="text-sm text-charcoal/70 mt-1">{session.error}</p>
                   {session.canRetry && (
                     <button
@@ -255,14 +261,14 @@ const SessionCard: React.FC<SessionCardProps> = ({
                       className="mt-3 inline-flex items-center text-sm font-medium text-terracotta hover:text-[#C05638] underline decoration-terracotta/30 hover:decoration-terracotta transition-all"
                     >
                       <RefreshCw className="h-4 w-4 mr-1.5" />
-                      Try again
+                      {t('analyze.failed.tryAgain')}
                     </button>
                   )}
                 </div>
               </div>
               {session.partialResult && (
                 <div className="opacity-60">
-                  <p className="text-xs text-charcoal/40 mb-2">Partial results:</p>
+                  <p className="text-xs text-charcoal/40 mb-2">{t('analyze.failed.partialResults')}</p>
                   <ProgressiveResult partialResult={session.partialResult} stalled />
                 </div>
               )}
@@ -272,7 +278,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Dismiss
+                  {t('analyze.dismiss')}
                 </button>
               </div>
             </div>
@@ -281,7 +287,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
           {/* Cancelled */}
           {isCancelled && (
             <div className="pt-4 space-y-4">
-              <div className="text-center text-sm text-charcoal/40">Analysis was cancelled.</div>
+              <div className="text-center text-sm text-charcoal/40">{t('analyze.cancelled')}</div>
               {session.partialResult && (
                 <div className="opacity-50">
                   <ProgressiveResult partialResult={session.partialResult} />
@@ -293,7 +299,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
                   className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  Dismiss
+                  {t('analyze.dismiss')}
                 </button>
               </div>
             </div>

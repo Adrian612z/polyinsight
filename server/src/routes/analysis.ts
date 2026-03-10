@@ -10,7 +10,7 @@ const router = Router()
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
-    const { url } = req.body
+    const { url, lang } = req.body
 
     if (!url) {
       res.status(400).json({ error: 'Please provide a Polymarket URL' })
@@ -52,7 +52,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     // 3. Trigger n8n webhook (fire-and-forget)
-    fetch(config.n8nWebhookUrl, {
+    const webhookUrl = lang === 'zh' ? config.n8nWebhookUrlZh : config.n8nWebhookUrl
+    fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

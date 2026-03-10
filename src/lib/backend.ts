@@ -45,8 +45,8 @@ export const api = {
   getMe: () => apiRequest('/users/me'),
 
   // Analysis
-  createAnalysis: (url: string) =>
-    apiRequest('/analysis', { method: 'POST', body: JSON.stringify({ url }) }),
+  createAnalysis: (url: string, lang?: string) =>
+    apiRequest('/analysis', { method: 'POST', body: JSON.stringify({ url, lang: lang || 'en' }) }),
 
   // Credits
   getCreditHistory: (page = 1) =>
