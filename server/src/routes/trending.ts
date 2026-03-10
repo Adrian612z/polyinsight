@@ -6,7 +6,7 @@ const router = Router()
 // GET /api/trending - Public endpoint, returns live Polymarket trending events
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const limit = parseInt(req.query.limit as string) || 12
+    const limit = Math.min(parseInt(req.query.limit as string) || 12, 50)
     const events = await fetchTrendingEvents(limit)
 
     const items = events.map((e) => {

@@ -6,16 +6,38 @@ import { config } from '../config.js'
 
 const router = Router()
 
+// Validate that URL is a legitimate Polymarket URL (prevent SSRF)
+function isValidPolymarketUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+      (parsed.hostname === 'polymarket.com' || parsed.hostname.endsWith('.polymarket.com')) &&
+      parsed.pathname.startsWith('/event/')
+    )
+  } catch {
+    return false
+  }
+}
+
 // POST /api/analysis - Create analysis with credit deduction
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
     const { url, lang } = req.body
 
-    if (!url) {
+    if (!url || typeof url !== 'string') {
       res.status(400).json({ error: 'Please provide a Polymarket URL' })
       return
     }
+
+    if (!isValidPolymarketUrl(url)) {
+      res.status(400).json({ error: 'Invalid URL. Only Polymarket event URLs are accepted (https://polymarket.com/event/...)' })
+      return
+    }
+
+    // Validate lang parameter
+    const validLang = lang === 'zh' ? 'zh' : 'en'
 
     // 1. Create analysis record
     const { data: record, error: dbError } = await supabase
@@ -52,7 +74,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     // 3. Trigger n8n webhook (fire-and-forget)
-    const webhookUrl = lang === 'zh' ? config.n8nWebhookUrlZh : config.n8nWebhookUrl
+    const webhookUrl = validLang === 'zh' ? config.n8nWebhookUrlZh : config.n8nWebhookUrl
     fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -72,6 +94,107 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Analysis error:', err)
     res.status(500).json({ error: 'Failed to create analysis' })
+  }
+})
+
+// GET /api/analysis/history - List user's analysis records
+router.get('/history', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!
+    const page = parseInt(req.query.page as string) || 1
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50)
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+
+    const { count } = await supabase
+      .from('analysis_records')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .select('id, event_url, analysis_result, status, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .range(from, to)
+
+    if (error) throw error
+
+    res.json({ records: data || [], total: count || 0, page })
+  } catch (err) {
+    console.error('History error:', err)
+    res.status(500).json({ error: 'Failed to fetch history' })
+  }
+})
+
+// GET /api/analysis/:id/poll - Poll analysis status (for progressive rendering)
+router.get('/:id/poll', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .select('status, analysis_result')
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .single()
+
+    if (error || !data) {
+      res.status(404).json({ error: 'Record not found' })
+      return
+    }
+
+    res.json(data)
+  } catch (err) {
+    console.error('Poll error:', err)
+    res.status(500).json({ error: 'Failed to poll analysis' })
+  }
+})
+
+// POST /api/analysis/:id/cancel - Cancel an analysis
+router.post('/:id/cancel', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .update({ status: 'cancelled' })
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .select('id')
+
+    if (error) throw error
+    if (!data || data.length === 0) {
+      res.status(404).json({ error: 'Record not found' })
+      return
+    }
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Cancel error:', err)
+    res.status(500).json({ error: 'Failed to cancel analysis' })
+  }
+})
+
+// DELETE /api/analysis/:id - Delete an analysis record
+router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .select('id')
+
+    if (error) throw error
+    if (!data || data.length === 0) {
+      res.status(404).json({ error: 'Record not found' })
+      return
+    }
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Delete error:', err)
+    res.status(500).json({ error: 'Failed to delete analysis' })
   }
 })
 

@@ -206,9 +206,13 @@ router.get('/users', async (req: Request, res: Response) => {
       .order('created_at', { ascending: false })
 
     if (search) {
-      query = query.or(`email.ilike.%${search}%,display_name.ilike.%${search}%`)
+      // Sanitize search input to prevent PostgREST filter injection
+      const sanitized = search.replace(/[%_,()]/g, '')
+      if (sanitized) {
+        query = query.or(`email.ilike.%${sanitized}%,display_name.ilike.%${sanitized}%`)
+      }
     }
-    if (role) {
+    if (role && ['admin', 'user'].includes(role)) {
       query = query.eq('role', role)
     }
 
@@ -265,9 +269,15 @@ router.put('/users/:id', async (req: Request, res: Response) => {
     const { role, display_name, credit_balance } = req.body
 
     const updates: Record<string, any> = { updated_at: new Date().toISOString() }
-    if (role !== undefined) updates.role = role
-    if (display_name !== undefined) updates.display_name = display_name
-    if (credit_balance !== undefined) updates.credit_balance = credit_balance
+    if (role !== undefined) {
+      if (!['admin', 'user'].includes(role)) {
+        res.status(400).json({ error: 'Invalid role. Must be "admin" or "user"' })
+        return
+      }
+      updates.role = role
+    }
+    if (display_name !== undefined && typeof display_name === 'string') updates.display_name = display_name
+    if (credit_balance !== undefined && typeof credit_balance === 'number' && credit_balance >= 0) updates.credit_balance = credit_balance
 
     const { data, error } = await supabase
       .from('users')
@@ -324,7 +334,10 @@ router.get('/analyses', async (req: Request, res: Response) => {
       .order('created_at', { ascending: false })
 
     if (search) {
-      query = query.or(`event_url.ilike.%${search}%,user_id.ilike.%${search}%`)
+      const sanitized = search.replace(/[%_,()]/g, '')
+      if (sanitized) {
+        query = query.or(`event_url.ilike.%${sanitized}%,user_id.ilike.%${sanitized}%`)
+      }
     }
     if (status) {
       query = query.eq('status', status)
@@ -451,9 +464,21 @@ router.post('/featured', async (req: Request, res: Response) => {
 
 router.put('/featured/:id', async (req: Request, res: Response) => {
   try {
+    // Whitelist allowed fields to prevent mass assignment
+    const { event_slug, event_title, category, polymarket_url, analysis_record_id, decision_data, mispricing_score, is_active } = req.body
+    const allowed: Record<string, any> = {}
+    if (event_slug !== undefined) allowed.event_slug = event_slug
+    if (event_title !== undefined) allowed.event_title = event_title
+    if (category !== undefined) allowed.category = category
+    if (polymarket_url !== undefined) allowed.polymarket_url = polymarket_url
+    if (analysis_record_id !== undefined) allowed.analysis_record_id = analysis_record_id
+    if (decision_data !== undefined) allowed.decision_data = decision_data
+    if (mispricing_score !== undefined) allowed.mispricing_score = mispricing_score
+    if (is_active !== undefined) allowed.is_active = is_active
+
     const { data, error } = await supabase
       .from('featured_analyses')
-      .update(req.body)
+      .update(allowed)
       .eq('id', req.params.id)
       .select()
       .single()
@@ -487,7 +512,6 @@ router.get('/settings', async (_req: Request, res: Response) => {
     analysisCost: config.analysisCost,
     signupBonus: config.signupBonus,
     referralCommissionRate: config.referralCommissionRate,
-    n8nWebhookUrl: config.n8nWebhookUrl,
   })
 })
 

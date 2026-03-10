@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { supabase } from '../lib/supabase'
+import { api } from '../lib/backend'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { format } from 'date-fns'
@@ -45,13 +45,7 @@ export const History: React.FC = () => {
 
     setDeletingIds((prev) => new Set(prev).add(record.id))
     try {
-      const { error } = await supabase
-        .from('analysis_records')
-        .delete()
-        .eq('id', record.id)
-        .eq('user_id', privyUserId)
-
-      if (error) throw error
+      await api.deleteAnalysis(record.id)
 
       setRecords((prev) => prev.filter((r) => r.id !== record.id))
       setTotalCount((prev) => prev - 1)
@@ -75,25 +69,9 @@ export const History: React.FC = () => {
 
       setLoading(true)
       try {
-        const { count } = await supabase
-          .from('analysis_records')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', privyUserId)
-
-        setTotalCount(count || 0)
-
-        const from = (currentPage - 1) * PAGE_SIZE
-        const to = from + PAGE_SIZE - 1
-
-        const { data, error } = await supabase
-          .from('analysis_records')
-          .select('*')
-          .eq('user_id', privyUserId)
-          .order('created_at', { ascending: false })
-          .range(from, to)
-
-        if (error) throw error
-        setRecords(data || [])
+        const res = await api.getAnalysisHistory(currentPage, PAGE_SIZE)
+        setTotalCount(res.total || 0)
+        setRecords(res.records || [])
       } catch (err) {
         console.error('Error fetching records:', err)
       } finally {

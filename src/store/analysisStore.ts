@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useShallow } from 'zustand/react/shallow'
-import { supabase } from '../lib/supabase'
 import { api } from '../lib/backend'
 import { useAuthStore } from './authStore'
 import i18n from '../i18n'
@@ -125,13 +124,7 @@ function startPollingForSession(recordId: string) {
     }
 
     try {
-      const { data, error } = await supabase
-        .from('analysis_records')
-        .select('status, analysis_result')
-        .eq('id', recordId)
-        .single()
-
-      if (error) throw error
+      const data = await api.pollAnalysis(recordId)
 
       if (data.status === 'completed' && data.analysis_result) {
         stopSessionPolling(recordId)
@@ -244,10 +237,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
         })
 
         try {
-          await supabase
-            .from('analysis_records')
-            .update({ status: 'cancelled' })
-            .eq('id', targetId)
+          await api.cancelAnalysis(targetId)
         } catch (err) {
           console.error('Failed to cancel analysis record:', err)
         }

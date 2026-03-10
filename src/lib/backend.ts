@@ -1,13 +1,14 @@
 const API_BASE = '/api'
 
+// Module-scoped token storage (not exposed on window)
+let _privyToken: string | null = null
+
 async function getPrivyToken(): Promise<string | null> {
-  // Privy stores tokens in its internal state
-  // We access it via the window.__PRIVY_TOKEN__ set by App.tsx
-  return (window as unknown as Record<string, string>).__PRIVY_TOKEN__ || null
+  return _privyToken
 }
 
 export function setPrivyToken(token: string | null) {
-  (window as unknown as Record<string, string | null>).__PRIVY_TOKEN__ = token
+  _privyToken = token
 }
 
 async function apiRequest(path: string, options: RequestInit = {}) {
@@ -47,6 +48,18 @@ export const api = {
   // Analysis
   createAnalysis: (url: string, lang?: string) =>
     apiRequest('/analysis', { method: 'POST', body: JSON.stringify({ url, lang: lang || 'en' }) }),
+
+  getAnalysisHistory: (page = 1, limit = 10) =>
+    apiRequest(`/analysis/history?page=${page}&limit=${limit}`),
+
+  pollAnalysis: (recordId: string) =>
+    apiRequest(`/analysis/${recordId}/poll`),
+
+  cancelAnalysis: (recordId: string) =>
+    apiRequest(`/analysis/${recordId}/cancel`, { method: 'POST' }),
+
+  deleteAnalysis: (recordId: string) =>
+    apiRequest(`/analysis/${recordId}`, { method: 'DELETE' }),
 
   // Credits
   getCreditHistory: (page = 1) =>

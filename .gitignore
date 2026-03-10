@@ -24,4 +24,17 @@ dist-ssr
 *.sw?
 # Environment files
 .env
+.env.*
+.env.local
+.env.production
+.env.staging
 server/.env
+server/.env.*
+
+# Security
+*.pem
+*.key
+*.cert
+
+# Coverage
+coverage/

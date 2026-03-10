@@ -11,7 +11,7 @@ export async function deductCredits(
   referenceId?: string,
   description?: string
 ): Promise<number> {
-  // 1. Get current balance with lock simulation (Supabase doesn't support FOR UPDATE via REST)
+  // 1. Get current balance
   const { data: user, error: userErr } = await supabase
     .from('users')
     .select('credit_balance, referred_by')
@@ -27,14 +27,20 @@ export async function deductCredits(
 
   const newBalance = currentBalance - amount
 
-  // 2. Update balance (use eq to ensure no race condition)
-  const { error: updateErr } = await supabase
+  // 2. Update balance with optimistic lock — check affected rows
+  const { data: updated, error: updateErr } = await supabase
     .from('users')
     .update({ credit_balance: newBalance, updated_at: new Date().toISOString() })
     .eq('id', userId)
     .eq('credit_balance', currentBalance) // Optimistic lock
+    .select('id')
 
   if (updateErr) throw new Error('Deduction failed, please retry')
+
+  // If no rows matched, another concurrent request changed the balance
+  if (!updated || updated.length === 0) {
+    throw new Error('Concurrent credit update detected, please retry')
+  }
 
   // 3. Record transaction
   await supabase.from('credit_transactions').insert({
@@ -64,7 +70,7 @@ export async function deductCredits(
 }
 
 /**
- * Grant credits to a user (topup, commission, admin grant, etc.)
+ * Grant credits to a user with optimistic lock to prevent lost updates.
  */
 export async function grantCredits(
   userId: string,
@@ -81,12 +87,22 @@ export async function grantCredits(
 
   if (error || !user) throw new Error('User not found')
 
-  const newBalance = user.credit_balance + amount
+  const currentBalance = user.credit_balance
+  const newBalance = currentBalance + amount
 
-  await supabase
+  // Optimistic lock — check affected rows
+  const { data: updated, error: updateErr } = await supabase
     .from('users')
     .update({ credit_balance: newBalance, updated_at: new Date().toISOString() })
     .eq('id', userId)
+    .eq('credit_balance', currentBalance) // Optimistic lock
+    .select('id')
+
+  if (updateErr) throw new Error('Grant failed, please retry')
+
+  if (!updated || updated.length === 0) {
+    throw new Error('Concurrent credit update detected, please retry')
+  }
 
   await supabase.from('credit_transactions').insert({
     user_id: userId,

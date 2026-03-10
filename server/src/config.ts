@@ -18,17 +18,26 @@ try {
   }
 } catch {}
 
+function requireEnv(key: string): string {
+  const val = process.env[key]
+  if (!val) {
+    console.error(`FATAL: Missing required environment variable: ${key}`)
+    process.exit(1)
+  }
+  return val
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3001'),
 
-  supabaseUrl: process.env.SUPABASE_URL || 'https://bdmgxchyuokxiyyfdlbo.supabase.co',
-  supabaseServiceKey: process.env.SUPABASE_SERVICE_KEY || '',
+  supabaseUrl: requireEnv('SUPABASE_URL'),
+  supabaseServiceKey: requireEnv('SUPABASE_SERVICE_KEY'),
 
-  privyAppId: process.env.PRIVY_APP_ID || 'cmmeo6mqw004j0djm1swrhwx4',
-  privyAppSecret: process.env.PRIVY_APP_SECRET || '',
+  privyAppId: requireEnv('PRIVY_APP_ID'),
+  privyAppSecret: requireEnv('PRIVY_APP_SECRET'),
 
-  n8nWebhookUrl: process.env.N8N_WEBHOOK_URL || 'http://127.0.0.1:5678/webhook/polymarket-analysis',
-  n8nWebhookUrlZh: process.env.N8N_WEBHOOK_URL_ZH || 'http://127.0.0.1:5678/webhook/polymarket-analysis-zh',
+  n8nWebhookUrl: requireEnv('N8N_WEBHOOK_URL'),
+  n8nWebhookUrlZh: requireEnv('N8N_WEBHOOK_URL_ZH'),
 
   // Credit cost per analysis (in centicredits: 100 = 1.00 credit)
   analysisCost: 100,
@@ -37,6 +46,9 @@ export const config = {
   // Referral commission rate (10%)
   referralCommissionRate: 0.10,
 
-  adminPassword: process.env.ADMIN_PASSWORD || 'polyinsight_admin_2024',
-  adminJwtSecret: process.env.ADMIN_JWT_SECRET || 'pi_adm_jwt_default_secret',
+  adminPassword: requireEnv('ADMIN_PASSWORD'),
+  adminJwtSecret: requireEnv('ADMIN_JWT_SECRET'),
+
+  // Allowed frontend origins for CORS
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || 'https://polyinsight.online').split(','),
 }

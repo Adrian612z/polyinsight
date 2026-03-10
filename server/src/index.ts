@@ -1,5 +1,7 @@
 import express from 'express'
 import cors from 'cors'
+import helmet from 'helmet'
+import rateLimit from 'express-rate-limit'
 import { config } from './config.js'
 import usersRouter from './routes/users.js'
 import analysisRouter from './routes/analysis.js'
@@ -12,8 +14,48 @@ import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
 
 const app = express()
 
-app.use(cors())
-app.use(express.json())
+// Security headers
+app.use(helmet())
+
+// CORS — only allow configured origins
+app.use(cors({
+  origin: config.allowedOrigins,
+  credentials: true,
+}))
+
+// Body parser with size limit
+app.use(express.json({ limit: '100kb' }))
+
+// Global rate limit: 100 requests per minute per IP
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+})
+app.use(globalLimiter)
+
+// Strict rate limit for auth endpoints: 10 attempts per 15 minutes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later' },
+})
+app.use('/api/admin/login', authLimiter)
+app.use('/api/users/register', authLimiter)
+
+// Stricter limit for analysis (costs money): 20 per hour per IP
+const analysisLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Analysis rate limit exceeded, please try again later' },
+})
+app.use('/api/analysis', analysisLimiter)
 
 // Health check
 app.get('/api/health', (_req, res) => {
