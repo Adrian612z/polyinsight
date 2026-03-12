@@ -32,7 +32,7 @@ const CHAIN_DISPLAY: Record<string, { label: string; color: string }> = {
   bnb: { label: 'BNB Chain', color: '#F0B90B' },
 }
 
-const MIN_AMOUNT = 10
+const MIN_AMOUNT = 0.01
 
 interface TransferModalProps {
   fromAddress: string
@@ -105,6 +105,32 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     try {
       const p = provider as {
         request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+      }
+
+      // Switch wallet to the selected chain
+      const chainIdHex = '0x' + selectedChain!.chain_id.toString(16)
+      try {
+        await p.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: chainIdHex }],
+        })
+      } catch (switchErr: unknown) {
+        const err = switchErr as { code?: number }
+        // 4902 = chain not added, try adding it
+        if (err.code === 4902) {
+          const display = CHAIN_DISPLAY[selectedChain!.chain_name]
+          await p.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: chainIdHex,
+              chainName: display?.label || selectedChain!.chain_name,
+              rpcUrls: [selectedChain!.rpc_url],
+              nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+            }],
+          })
+        } else {
+          throw switchErr
+        }
       }
 
       // Convert amount to token units (6 decimals for USDC/USDT)
