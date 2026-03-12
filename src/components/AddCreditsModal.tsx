@@ -171,7 +171,7 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
                   )}
 
                   <div className="mt-6 w-full max-w-xs bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Monitoring all chains</span>
+                    <span className="text-sm text-gray-600">Monitoring {SUPPORTED_CHAINS} chains</span>
                     <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-600">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
                       Active
@@ -188,10 +188,10 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
                     <QRCodeSVG value={qrData} size={200} level="M" marginSize={0} />
                   </div>
                   <p className="text-sm text-gray-500 text-center mb-4">
-                    Send Tokens to this Address on any Supported Chain
+                    Send USDT or USDC to this Address on  Supported Chain
                   </p>
                   <div className="w-full max-w-xs bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Monitoring all chains</span>
+                    <span className="text-sm text-gray-600">Monitoring {SUPPORTED_CHAINS} chains</span>
                     <span className="flex items-center gap-1.5 text-sm font-medium text-emerald-600">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
                       Active
