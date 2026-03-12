@@ -15,10 +15,12 @@
   "dependencies": {
     "@privy-io/react-auth": "^3.16.0",
     "@supabase/supabase-js": "^2.93.1",
+    "@walletconnect/ethereum-provider": "^2.23.8",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "i18next": "^25.8.17",
     "lucide-react": "^0.511.0",
+    "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^16.5.6",

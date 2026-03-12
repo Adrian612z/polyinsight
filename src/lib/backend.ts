@@ -90,6 +90,10 @@ export const api = {
   getTrending: (limit = 12) =>
     fetch(`${API_BASE}/trending?limit=${limit}`).then(r => r.json()),
 
+  // Wallet
+  getOrCreateWallet: (seed: string) =>
+    apiRequest('/wallet/create', { method: 'POST', body: JSON.stringify({ seed }) }),
+
   // Admin
   adminDashboard: () => apiRequest('/admin/dashboard'),
   adminUsers: (page = 1) => apiRequest(`/admin/users?page=${page}`),

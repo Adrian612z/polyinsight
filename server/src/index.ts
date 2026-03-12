@@ -10,6 +10,9 @@ import referralsRouter from './routes/referrals.js'
 import featuredRouter from './routes/featured.js'
 import trendingRouter from './routes/trending.js'
 import adminRouter from './routes/admin.js'
+import walletRouter from './routes/wallet.js'
+import chainsRouter from './routes/chains.js'
+import transactionsRouter from './routes/transactions.js'
 import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
 
 const app = express()
@@ -63,6 +66,9 @@ app.use('/api/referral', referralsRouter)
 app.use('/api/featured', featuredRouter)
 app.use('/api/trending', trendingRouter)
 app.use('/api/admin', adminRouter)
+app.use('/api/wallet', walletRouter)
+app.use('/api/chains', chainsRouter)
+app.use('/api/transactions', transactionsRouter)
 
 app.listen(config.port, () => {
   console.log(`PolyInsight API server running on port ${config.port}`)
