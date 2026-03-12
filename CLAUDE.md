@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PolyInsight is an AI-powered Polymarket event analysis platform. Users submit Polymarket event URLs, which are analyzed via n8n webhook workflows (4-step pipeline), returning structured risk assessment reports. Auth via Privy (email, Google, wallet). Full Chinese/English i18n support with separate n8n workflows per language.
 
+For payment and credit handover context, see `docs/payment-credit-handover.md`.
+
 ## Development Commands
 
 ```bash
@@ -46,7 +48,6 @@ src/
 │   ├── ErrorBoundary.tsx
 │   ├── Toast.tsx
 │   ├── Skeleton.tsx
-│   ├── Empty.tsx
 │   └── Logo.tsx
 ├── store/
 │   ├── authStore.ts      # Privy auth state (userId, credits, referral, role)
@@ -58,7 +59,6 @@ src/
 ├── lib/
 │   ├── supabase.ts       # Supabase client
 │   ├── backend.ts        # API client (auth, analysis, credits, admin)
-│   ├── api.ts            # fetchWithRetry, parseErrorMessage
 │   └── utils.ts          # cn() class merge helper
 ├── test/
 │   └── setup.ts          # Vitest setup
@@ -68,8 +68,10 @@ server/                   # Backend API (Express)
 ├── src/
 │   ├── routes/
 │   │   ├── analysis.ts   # POST /api/analysis — create + trigger n8n (language-aware)
-│   │   ├── auth.ts       # Privy token verification, user registration
-│   │   └── admin.ts      # Admin endpoints (users, analyses, grant credits)
+│   │   ├── users.ts      # User registration and profile
+│   │   ├── credits.ts    # Credit history
+│   │   ├── referrals.ts  # Referral info
+│   │   └── admin.ts      # Admin endpoints (users, analyses, credits, featured)
 │   ├── services/
 │   │   ├── supabase.ts   # Supabase service-role client
 │   │   └── credit.ts     # Credit deduction + referral commission (10%)
@@ -120,7 +122,6 @@ Protected routes redirect to `/` (Discovery) if not authenticated.
 Tests alongside source files:
 - `src/store/authStore.test.ts`
 - `src/lib/utils.test.ts`
-- `src/lib/api.test.ts`
 
 Run: `npm run test:run`
 

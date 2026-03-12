@@ -26,10 +26,24 @@ async function apiRequest(path: string, options: RequestInit = {}) {
     headers,
   })
 
-  const data = await res.json()
+  const raw = await res.text()
+  const contentType = res.headers.get('content-type') || ''
+  let data: any = null
+
+  if (raw) {
+    if (contentType.includes('application/json')) {
+      data = JSON.parse(raw)
+    } else {
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        data = { error: `Request failed with status ${res.status}` }
+      }
+    }
+  }
 
   if (!res.ok) {
-    const error = new Error(data.error || 'Request failed') as Error & { code?: string; status?: number }
+    const error = new Error(data?.error || `Request failed with status ${res.status}`) as Error & { code?: string; status?: number }
     error.code = data.code
     error.status = res.status
     throw error

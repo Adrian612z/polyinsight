@@ -14,6 +14,9 @@ import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
 
 const app = express()
 
+// Trust the reverse proxy (for correct client IPs behind Nginx/Cloudflare)
+app.set('trust proxy', 1)
+
 // Security headers
 app.use(helmet())
 
@@ -46,16 +49,6 @@ const authLimiter = rateLimit({
 })
 app.use('/api/admin/login', authLimiter)
 app.use('/api/users/register', authLimiter)
-
-// Stricter limit for analysis (costs money): 20 per hour per IP
-const analysisLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Analysis rate limit exceeded, please try again later' },
-})
-app.use('/api/analysis', analysisLimiter)
 
 // Health check
 app.get('/api/health', (_req, res) => {

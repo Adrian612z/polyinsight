@@ -18,7 +18,7 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
   if (res.status === 401) {
     localStorage.removeItem('admin_token')
     localStorage.removeItem('admin_user')
-    window.location.href = '/admin/login'
+    window.location.href = '/login'
     throw new Error('Unauthorized')
   }
 

@@ -97,29 +97,38 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       { count: totalAnalyses },
       { count: todayAnalyses },
       { data: creditStats },
+      { count: referralCount },
+      { data: allUsers },
     ] = await Promise.all([
       supabase.from('users').select('id', { count: 'exact', head: true }),
       supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', todayStart),
       supabase.from('analysis_records').select('id', { count: 'exact', head: true }),
       supabase.from('analysis_records').select('id', { count: 'exact', head: true }).gte('created_at', todayStart),
       supabase.from('credit_transactions').select('amount, type'),
+      supabase.from('users').select('id', { count: 'exact', head: true }).not('referred_by', 'is', null),
+      supabase.from('users').select('id, referred_by'),
     ])
 
-    const totalTopup = (creditStats || [])
-      .filter(t => t.type === 'topup' || t.type === 'admin_grant' || t.type === 'signup_bonus')
-      .reduce((sum, t) => sum + t.amount, 0)
+    const sumByType = (types: string[]) =>
+      (creditStats || []).filter(t => types.includes(t.type)).reduce((s, t) => s + Math.abs(t.amount), 0)
 
-    const totalSpent = (creditStats || [])
-      .filter(t => t.type === 'analysis_spend')
-      .reduce((sum, t) => sum + Math.abs(t.amount), 0)
+    // Count unique referrers (users who have invited at least one person)
+    const referrerSet = new Set((allUsers || []).filter(u => u.referred_by).map(u => u.referred_by))
 
     res.json({
       totalUsers: totalUsers || 0,
       todayUsers: todayUsers || 0,
       totalAnalyses: totalAnalyses || 0,
       todayAnalyses: todayAnalyses || 0,
-      totalTopup,
-      totalSpent,
+      // Granular credit stats
+      userTopup: sumByType(['topup']),
+      adminGrant: sumByType(['admin_grant']),
+      signupBonus: sumByType(['signup_bonus']),
+      analysisSpent: sumByType(['analysis_spend']),
+      referralCommission: sumByType(['referral_commission']),
+      // Referral stats
+      referralCount: referralCount || 0,
+      activeReferrers: referrerSet.size,
     })
   } catch (err) {
     console.error('Dashboard error:', err)
@@ -236,7 +245,7 @@ router.get('/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const [{ data: user }, { data: analyses }, { data: transactions }] = await Promise.all([
+    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }, { data: referrer }] = await Promise.all([
       supabase.from('users').select('*').eq('id', id).single(),
       supabase.from('analysis_records')
         .select('id, event_url, status, credits_charged, created_at')
@@ -248,6 +257,13 @@ router.get('/users/:id', async (req: Request, res: Response) => {
         .eq('user_id', id)
         .order('created_at', { ascending: false })
         .limit(50),
+      // Users this person invited
+      supabase.from('users')
+        .select('id, email, display_name, credit_balance, created_at')
+        .eq('referred_by', id)
+        .order('created_at', { ascending: false }),
+      // Placeholder - will resolve after getting user
+      supabase.from('users').select('id, email, display_name').eq('id', '__placeholder__'),
     ])
 
     if (!user) {
@@ -255,7 +271,18 @@ router.get('/users/:id', async (req: Request, res: Response) => {
       return
     }
 
-    res.json({ user, analyses, transactions })
+    // Resolve referrer info
+    let referrerInfo = null
+    if (user.referred_by) {
+      const { data } = await supabase
+        .from('users')
+        .select('id, email, display_name, referral_code')
+        .eq('id', user.referred_by)
+        .single()
+      referrerInfo = data
+    }
+
+    res.json({ user, analyses, transactions, invitedUsers: invitedUsers || [], referrer: referrerInfo })
   } catch (err) {
     console.error('User detail error:', err)
     res.status(500).json({ error: 'Failed to fetch user detail' })

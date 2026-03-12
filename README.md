@@ -44,6 +44,10 @@ AI-powered prediction market analysis platform. Submit a Polymarket event URL, g
 | i18n | react-i18next (English / Chinese) |
 | Deployment | Nginx reverse proxy (frontend + API + n8n) |
 
+## Handover Notes
+
+- Payment and credit system handover: `docs/payment-credit-handover.md`
+
 ---
 
 ## Project Structure

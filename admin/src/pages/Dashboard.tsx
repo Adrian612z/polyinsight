@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import StatCard from '../components/StatCard'
-import { Users, UserPlus, FileSearch, FilePlus, TrendingUp, TrendingDown } from 'lucide-react'
+import {
+  Users, UserPlus, FileSearch, FilePlus,
+  Wallet, ShieldCheck, Gift, TrendingDown, Link2, UserCheck,
+} from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
@@ -11,8 +14,13 @@ interface Stats {
   todayUsers: number
   totalAnalyses: number
   todayAnalyses: number
-  totalTopup: number
-  totalSpent: number
+  userTopup: number
+  adminGrant: number
+  signupBonus: number
+  analysisSpent: number
+  referralCommission: number
+  referralCount: number
+  activeReferrers: number
 }
 
 interface Charts {
@@ -44,26 +52,44 @@ export default function Dashboard() {
   }
 
   const fmtCredit = (v: number) => (v / 100).toFixed(2)
-  const fmtDate = (d: string) => d.slice(5) // MM-DD
+  const fmtDate = (d: string) => d.slice(5)
 
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-gray-900">仪表盘</h1>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+      {/* Row 1: User & Analysis */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="总用户数" value={stats?.totalUsers || 0} icon={Users} color="bg-indigo-500" />
         <StatCard title="今日新增" value={stats?.todayUsers || 0} icon={UserPlus} color="bg-emerald-500" />
         <StatCard title="总分析数" value={stats?.totalAnalyses || 0} icon={FileSearch} color="bg-violet-500" />
         <StatCard title="今日分析" value={stats?.todayAnalyses || 0} icon={FilePlus} color="bg-cyan-500" />
-        <StatCard title="总充值" value={fmtCredit(stats?.totalTopup || 0)} icon={TrendingUp} color="bg-amber-500" />
-        <StatCard title="总消费" value={fmtCredit(stats?.totalSpent || 0)} icon={TrendingDown} color="bg-rose-500" />
+      </div>
+
+      {/* Row 2: Credit Breakdown */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 mb-3">积分统计</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <StatCard title="用户付费" value={fmtCredit(stats?.userTopup || 0)} subtitle="仅真实支付" icon={Wallet} color="bg-emerald-500" />
+          <StatCard title="管理充值" value={fmtCredit(stats?.adminGrant || 0)} subtitle="后台手动充值" icon={ShieldCheck} color="bg-slate-500" />
+          <StatCard title="注册奖励" value={fmtCredit(stats?.signupBonus || 0)} subtitle="新用户注册" icon={Gift} color="bg-blue-500" />
+          <StatCard title="分析消费" value={fmtCredit(stats?.analysisSpent || 0)} subtitle="用户分析支出" icon={TrendingDown} color="bg-rose-500" />
+          <StatCard title="推荐佣金" value={fmtCredit(stats?.referralCommission || 0)} subtitle="邀请返佣" icon={Link2} color="bg-purple-500" />
+        </div>
+      </div>
+
+      {/* Row 3: Referral */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-500 mb-3">邀请统计</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard title="被邀请用户" value={stats?.referralCount || 0} subtitle="通过邀请链接注册" icon={UserCheck} color="bg-amber-500" />
+          <StatCard title="活跃邀请人" value={stats?.activeReferrers || 0} subtitle="至少邀请1人" icon={Link2} color="bg-teal-500" />
+        </div>
       </div>
 
       {/* Charts */}
       {charts && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* User Growth */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">用户增长（30天）</h3>
             <ResponsiveContainer width="100%" height={240}>
@@ -77,7 +103,6 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
 
-          {/* Analysis Stats */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">分析统计（30天）</h3>
             <ResponsiveContainer width="100%" height={240}>
@@ -94,7 +119,6 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
 
-          {/* Credit Flow */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 lg:col-span-2">
             <h3 className="text-sm font-semibold text-gray-700 mb-4">积分流动（30天）</h3>
             <ResponsiveContainer width="100%" height={240}>

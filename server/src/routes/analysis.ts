@@ -1,10 +1,21 @@
 import { Router, Request, Response } from 'express'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { deductCredits } from '../services/credit.js'
 import { config } from '../config.js'
 
 const router = Router()
+
+// Limit analysis creation per authenticated user without affecting poll/history requests.
+const createAnalysisLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.userId || ipKeyGenerator(req.ip || ''),
+  message: { error: 'Analysis submission rate limit exceeded, please try again later' },
+})
 
 // Validate that URL is a legitimate Polymarket URL (prevent SSRF)
 function isValidPolymarketUrl(url: string): boolean {
@@ -21,7 +32,7 @@ function isValidPolymarketUrl(url: string): boolean {
 }
 
 // POST /api/analysis - Create analysis with credit deduction
-router.post('/', authMiddleware, async (req: Request, res: Response) => {
+router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
     const { url, lang } = req.body
