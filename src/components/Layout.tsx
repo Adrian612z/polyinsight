@@ -116,7 +116,8 @@ export const Layout: React.FC = () => {
                 </button>
 
                 {profileOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-charcoal/10 rounded-xl shadow-lg z-50 overflow-hidden">
+                  <div className="absolute right-0 top-full pt-2 w-56 z-50">
+                  <div className="bg-white border border-charcoal/10 rounded-xl shadow-lg overflow-hidden">
                     <div className="px-4 py-3 border-b border-charcoal/5">
                       <div className="text-sm font-medium text-charcoal truncate">{displayName}</div>
                       <div className="flex items-center gap-1.5 mt-1 text-charcoal/50 text-xs">
@@ -132,6 +133,7 @@ export const Layout: React.FC = () => {
                         Add Credits
                       </button>
                     </div>
+                  </div>
                   </div>
                 )}
               </div>
