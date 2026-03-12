@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
+import { useWallets } from '@privy-io/react-auth'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
@@ -8,15 +9,33 @@ import { LogOut, LayoutDashboard, History, Coins, Compass, User, Shield } from '
 import clsx from 'clsx'
 import { Logo } from './Logo'
 import { AnimatedBackground } from './AnimatedBackground'
+import { AddCreditsModal } from './AddCreditsModal'
 
 export const Layout: React.FC = () => {
   const { authenticated, logout } = usePrivy()
+  const { wallets } = useWallets()
   const { t, i18n } = useTranslation()
   const { displayName, creditBalance, role, signOut } = useAuthStore()
   const { reset, stopAllPolling } = useAnalysisStore()
   const activeCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'polling').length)
   const navigate = useNavigate()
   const location = useLocation()
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [addCreditsOpen, setAddCreditsOpen] = useState(false)
+  const profileRef = useRef<HTMLDivElement>(null)
+
+  const embeddedWallet = wallets.find((w) => w.walletClientType === 'privy')
+  const walletAddress = embeddedWallet?.address ?? ''
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleLogout = async () => {
     stopAllPolling()
@@ -84,15 +103,37 @@ export const Layout: React.FC = () => {
 
             <div className="w-px h-5 bg-charcoal/10 mx-2" />
 
-            <Link
-              to="/profile"
-              className="flex items-center gap-1.5 px-2.5 py-1 bg-terracotta/5 hover:bg-terracotta/10 rounded-full transition-colors"
-            >
-              <Coins size={14} className="text-terracotta" />
-              <span className="text-xs font-mono font-semibold text-terracotta">
-                {(creditBalance / 100).toFixed(2)}
-              </span>
-            </Link>
+            <div ref={profileRef} className="relative">
+              <button
+                onClick={() => setProfileOpen((o) => !o)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-terracotta/5 hover:bg-terracotta/10 rounded-full transition-colors"
+              >
+                <Coins size={14} className="text-terracotta" />
+                <span className="text-xs font-mono font-semibold text-terracotta">
+                  {(creditBalance / 100).toFixed(2)}
+                </span>
+              </button>
+
+              {profileOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-white border border-charcoal/10 rounded-xl shadow-lg z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-charcoal/5">
+                    <div className="text-sm font-medium text-charcoal truncate">{displayName}</div>
+                    <div className="flex items-center gap-1.5 mt-1 text-charcoal/50 text-xs">
+                      <Coins size={12} className="text-terracotta" />
+                      <span>{Math.round(creditBalance / 100)} credits</span>
+                    </div>
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <button
+                      onClick={() => { setProfileOpen(false); setAddCreditsOpen(true) }}
+                      className="w-full py-2 bg-charcoal hover:bg-charcoal/80 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Add Credits
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {role === 'admin' && (
               <Link
@@ -135,6 +176,14 @@ export const Layout: React.FC = () => {
       <main className="flex-grow container mx-auto px-6 py-12">
         <Outlet />
       </main>
+
+      {addCreditsOpen && (
+        <AddCreditsModal
+          walletAddress={walletAddress}
+          username={displayName || undefined}
+          onClose={() => setAddCreditsOpen(false)}
+        />
+      )}
 
       <footer className="py-8 border-t border-charcoal/5 mt-auto">
         <div className="container mx-auto px-6 text-center text-charcoal/40 text-xs font-serif">
