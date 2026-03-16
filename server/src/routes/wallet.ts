@@ -4,7 +4,7 @@ import { supabase } from '../services/supabase.js'
 import { createWalletFromSeed, getWalletBySeed } from '../services/wallet.js'
 
 const router = Router()
-const walletLookupKey = (userId: string) => `user:${userId}`
+const walletLookupKey = (userId: string) => `walletSeed:user:${userId}`
 
 // POST /api/wallet/create - Create or fetch the authenticated user's wallet
 router.post('/create', authMiddleware, async (req: Request, res: Response) => {
