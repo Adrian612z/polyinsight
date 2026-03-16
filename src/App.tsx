@@ -22,6 +22,7 @@ const Layout = lazyNamed(() => import('./components/Layout'), 'Layout')
 const Analyze = lazyNamed(() => import('./pages/Analyze'), 'Analyze')
 const History = lazyNamed(() => import('./pages/History'), 'History')
 const Profile = lazyNamed(() => import('./pages/Profile'), 'Profile')
+const Markets = lazyNamed(() => import('./pages/Markets'), 'Markets')
 const AdminLayout = lazyNamed(() => import('./pages/admin/AdminLayout'), 'AdminLayout')
 const AdminDashboard = lazyNamed(() => import('./pages/admin/Dashboard'), 'AdminDashboard')
 const AdminUsers = lazyNamed(() => import('./pages/admin/Users'), 'AdminUsers')
@@ -114,6 +115,10 @@ function App() {
               <Route
                 path="/profile"
                 element={authenticated ? <RouteSuspense><Profile /></RouteSuspense> : <Navigate to="/" />}
+              />
+              <Route
+                path="/markets"
+                element={<RouteSuspense><Markets /></RouteSuspense>}
               />
               <Route
                 path="/admin"

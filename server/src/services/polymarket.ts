@@ -31,10 +31,10 @@ interface TrendingCacheState {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = resolve(__dirname, '..', '..', '.cache')
 const CACHE_FILE = resolve(CACHE_DIR, 'trending-events.json')
-const UPSTREAM_TIMEOUT_MS = 2500
+const UPSTREAM_TIMEOUT_MS = 15000
 const FRESH_CACHE_MS = 60 * 1000
 const STALE_CACHE_MS = 15 * 60 * 1000
-const REFRESH_INTERVAL_MS = 90 * 1000
+const REFRESH_INTERVAL_MS = 30 * 60 * 1000
 
 const cache: TrendingCacheState = {
   events: [],

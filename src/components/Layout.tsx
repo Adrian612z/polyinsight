@@ -38,7 +38,7 @@ export const Layout: React.FC = () => {
   }
 
   const navItems = [
-    { label: t('layout.nav.discover'), path: '/', icon: Compass },
+    { label: t('layout.nav.markets'), path: '/markets', icon: Compass },
     { label: t('layout.nav.analyze'), path: '/analyze', icon: LayoutDashboard },
     { label: t('layout.nav.history'), path: '/history', icon: History },
   ]
