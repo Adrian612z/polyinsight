@@ -117,6 +117,10 @@ export const api = {
   getTrending: (limit = 12) =>
     publicRequest(`/trending?limit=${limit}`),
 
+  // Markets (public, detailed event data)
+  getMarkets: (limit = 20) =>
+    publicRequest(`/markets?limit=${limit}`),
+
   // Wallet
   getOrCreateWallet: (legacySeed?: string) =>
     apiRequest('/wallet/create', { method: 'POST', body: JSON.stringify({ legacySeed }) }),

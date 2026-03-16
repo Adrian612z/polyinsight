@@ -13,8 +13,10 @@ import adminRouter from './routes/admin.js'
 import walletRouter from './routes/wallet.js'
 import chainsRouter from './routes/chains.js'
 import transactionsRouter from './routes/transactions.js'
+import marketsRouter from './routes/markets.js'
 import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
 import { startTrendingCache } from './services/polymarket.js'
+import { startMarketsCache } from './services/markets.js'
 
 const app = express()
 
@@ -70,9 +72,11 @@ app.use('/api/admin', adminRouter)
 app.use('/api/wallet', walletRouter)
 app.use('/api/chains', chainsRouter)
 app.use('/api/transactions', transactionsRouter)
+app.use('/api/markets', marketsRouter)
 
 app.listen(config.port, () => {
   console.log(`PolyInsight API server running on port ${config.port}`)
   startStaleAnalysisJob()
   startTrendingCache()
+  startMarketsCache()
 })

@@ -27,11 +27,36 @@ function getTokensForChain(chain: ChainConfig): TokenInfo[] {
   ]
 }
 
-const CHAIN_DISPLAY: Record<string, { label: string; color: string }> = {
-  ethereum: { label: 'Ethereum', color: '#627EEA' },
-  polygon: { label: 'Polygon', color: '#8247E5' },
-  arbitrum: { label: 'Arbitrum', color: '#28A0F0' },
-  bnb: { label: 'BNB Chain', color: '#F0B90B' },
+const CHAIN_DISPLAY: Record<string, {
+  label: string
+  color: string
+  nativeCurrency: { name: string; symbol: string; decimals: number }
+  blockExplorerUrls: string[]
+}> = {
+  ethereum: {
+    label: 'Ethereum',
+    color: '#627EEA',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    blockExplorerUrls: ['https://etherscan.io'],
+  },
+  polygon: {
+    label: 'Polygon',
+    color: '#8247E5',
+    nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
+    blockExplorerUrls: ['https://polygonscan.com'],
+  },
+  arbitrum: {
+    label: 'Arbitrum',
+    color: '#28A0F0',
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+    blockExplorerUrls: ['https://arbiscan.io'],
+  },
+  bnb: {
+    label: 'BNB Chain',
+    color: '#F0B90B',
+    nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+    blockExplorerUrls: ['https://bscscan.com'],
+  },
 }
 
 interface TransferModalProps {
@@ -72,7 +97,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [sending, setSending] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const minimumAmount = fixedAmount ?? 1
+  const minimumAmount = fixedAmount ?? 0.01
 
   useEffect(() => {
     fetch('/api/chains')
@@ -126,6 +151,15 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
       // Switch wallet to the selected chain
       const chainIdHex = '0x' + selectedChain!.chain_id.toString(16)
+      const display = CHAIN_DISPLAY[selectedChain!.chain_name]
+      const chainParams = {
+        chainId: chainIdHex,
+        chainName: display?.label || selectedChain!.chain_name,
+        rpcUrls: [selectedChain!.rpc_url],
+        nativeCurrency: display?.nativeCurrency || { name: 'ETH', symbol: 'ETH', decimals: 18 },
+        blockExplorerUrls: display?.blockExplorerUrls || [],
+      }
+
       try {
         await p.request({
           method: 'wallet_switchEthereumChain',
@@ -133,17 +167,11 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         })
       } catch (switchErr: unknown) {
         const err = switchErr as { code?: number }
-        // 4902 = chain not added, try adding it
-        if (err.code === 4902) {
-          const display = CHAIN_DISPLAY[selectedChain!.chain_name]
+        // 4902 = chain not added; -32006 = RPC unauthorized
+        if (err.code === 4902 || err.code === -32006) {
           await p.request({
             method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: chainIdHex,
-              chainName: display?.label || selectedChain!.chain_name,
-              rpcUrls: [selectedChain!.rpc_url],
-              nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-            }],
+            params: [chainParams],
           })
         } else {
           throw switchErr
