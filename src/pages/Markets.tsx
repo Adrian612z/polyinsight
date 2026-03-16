@@ -14,6 +14,7 @@ interface MarketData {
 interface MarketEvent {
   slug: string
   title: string
+  description: string
   image: string
   category: string
   url: string
@@ -114,6 +115,13 @@ const EventDetailPanel: React.FC<{ event: MarketEvent; onClose: () => void }> = 
         {event.endDate && getTimeRemaining(event.endDate) && (
           <div className="mx-5 mt-3 text-xs text-center" style={{ color: 'var(--ink-soft)' }}>
             {getTimeRemaining(event.endDate)}
+          </div>
+        )}
+
+        {/* Description */}
+        {event.description && (
+          <div className="px-5 mt-4">
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--ink-soft)' }}>{event.description}</p>
           </div>
         )}
 

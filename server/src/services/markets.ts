@@ -3,6 +3,7 @@ import { supabase } from './supabase.js'
 export interface MarketEvent {
   slug: string
   title: string
+  description: string
   image: string
   category: string
   volume: number
@@ -51,6 +52,7 @@ function normalizeEvents(raw: unknown): MarketEvent[] {
     return {
       slug: String(e.slug || ''),
       title: String(e.title || ''),
+      description: typeof e.description === 'string' ? e.description : '',
       image: typeof e.image === 'string' ? e.image : '',
       category: String(e.category || ''),
       volume: Number(e.volume || 0),
@@ -75,6 +77,7 @@ async function saveEventsToDb(events: MarketEvent[]) {
     const row = {
       slug: e.slug,
       title: e.title,
+      description: e.description || null,
       image: e.image || null,
       category: e.category || null,
       volume: e.volume,
@@ -127,6 +130,7 @@ export async function getMarketEvents(limit = 20) {
   const events: MarketEvent[] = (data || []).map((row: Record<string, unknown>) => ({
     slug: String(row.slug),
     title: String(row.title),
+    description: String(row.description || ''),
     image: String(row.image || ''),
     category: String(row.category || ''),
     volume: Number(row.volume || 0),
