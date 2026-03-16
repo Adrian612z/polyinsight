@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { fetchTrendingEvents } from '../services/polymarket.js'
+import { getTrendingEvents } from '../services/polymarket.js'
 
 const router = Router()
 
@@ -7,9 +7,9 @@ const router = Router()
 router.get('/', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 12, 50)
-    const events = await fetchTrendingEvents(limit)
+    const result = await getTrendingEvents(limit)
 
-    const items = events.map((e) => {
+    const items = result.events.map((e) => {
       // Parse market outcomes for display
       const markets = (e.markets || []).map((m) => {
         let outcomes: string[] = []
@@ -38,10 +38,15 @@ router.get('/', async (req: Request, res: Response) => {
       }
     })
 
-    res.json({ events: items })
+    res.json({
+      events: items,
+      degraded: result.degraded,
+      source: result.source,
+      fetchedAt: result.fetchedAt,
+    })
   } catch (err) {
     console.error('Trending error:', err)
-    res.status(500).json({ error: 'Failed to fetch trending events' })
+    res.json({ events: [], degraded: true })
   }
 })
 

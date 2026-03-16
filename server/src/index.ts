@@ -14,6 +14,7 @@ import walletRouter from './routes/wallet.js'
 import chainsRouter from './routes/chains.js'
 import transactionsRouter from './routes/transactions.js'
 import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
+import { startTrendingCache } from './services/polymarket.js'
 
 const app = express()
 
@@ -73,4 +74,5 @@ app.use('/api/transactions', transactionsRouter)
 app.listen(config.port, () => {
   console.log(`PolyInsight API server running on port ${config.port}`)
   startStaleAnalysisJob()
+  startTrendingCache()
 })

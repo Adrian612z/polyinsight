@@ -42,40 +42,32 @@ const riskConfig = {
     labelKey: 'decision.risk.safe.label',
     emoji: '🟢',
     icon: ShieldCheck,
-    bg: 'bg-emerald-50',
-    border: 'border-emerald-200',
-    text: 'text-emerald-700',
-    badge: 'bg-emerald-100 text-emerald-800',
+    surface: 'tone-safe-surface',
+    badge: 'tone-safe-badge',
     descKey: 'decision.risk.safe.desc',
   },
   caution: {
     labelKey: 'decision.risk.caution.label',
     emoji: '🟡',
     icon: Shield,
-    bg: 'bg-amber-50',
-    border: 'border-amber-200',
-    text: 'text-amber-700',
-    badge: 'bg-amber-100 text-amber-800',
+    surface: 'tone-caution-surface',
+    badge: 'tone-caution-badge',
     descKey: 'decision.risk.caution.desc',
   },
   danger: {
     labelKey: 'decision.risk.danger.label',
     emoji: '🔴',
     icon: ShieldAlert,
-    bg: 'bg-red-50',
-    border: 'border-red-200',
-    text: 'text-red-600',
-    badge: 'bg-red-100 text-red-700',
+    surface: 'tone-danger-surface',
+    badge: 'tone-danger-badge',
     descKey: 'decision.risk.danger.desc',
   },
   reject: {
     labelKey: 'decision.risk.reject.label',
     emoji: '⚫',
     icon: ShieldX,
-    bg: 'bg-gray-100',
-    border: 'border-gray-300',
-    text: 'text-gray-700',
-    badge: 'bg-gray-200 text-gray-800',
+    surface: 'tone-reject-surface',
+    badge: 'tone-reject-badge',
     descKey: 'decision.risk.reject.desc',
   },
 }
@@ -103,46 +95,62 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
   // Fallback: no structured data, just show markdown
   if (!decision) {
     return (
-      <div className="prose prose-lg prose-stone mx-auto bg-white p-8 md:p-12 border border-charcoal/5 rounded-lg shadow-sm">
+      <div className="workspace-frame mx-auto rounded-[28px] p-8 md:p-10">
+        <div className="article-prose">
         <ReactMarkdown>{result}</ReactMarkdown>
+        </div>
       </div>
     )
   }
 
   const risk = riskConfig[decision.risk] || riskConfig.caution
+  const RiskIcon = risk.icon
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4">
+    <div className="max-w-3xl mx-auto space-y-5">
       {/* Quick Decision Card */}
-      <div className={`${risk.bg} border ${risk.border} rounded-xl p-6 space-y-5`}>
+      <div className="premium-card rounded-[30px] p-6 md:p-7 space-y-6">
         {/* Event Name */}
-        <div>
-          <h2 className="text-xl font-serif text-charcoal leading-tight">{decision.event}</h2>
-          <p className="text-xs text-charcoal/50 mt-1">
-            {t('decision.deadline', { date: decision.deadline })}
-          </p>
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="space-y-2">
+            <div className="section-label">Decision</div>
+            <h2 className="text-2xl font-serif text-charcoal leading-tight md:text-[2rem]">{decision.event}</h2>
+            <p className="text-sm text-charcoal/52">
+              {t('decision.deadline', { date: decision.deadline })}
+            </p>
+          </div>
+          <div className={`inline-flex items-center gap-2 self-start rounded-full px-3 py-2 ${risk.badge}`}>
+            <RiskIcon className="h-4 w-4" />
+            <span>{t(risk.labelKey)}</span>
+          </div>
         </div>
 
         {/* Probability Comparison */}
-        <div className="space-y-2">
+        <div className="grid gap-3">
           {decision.options.map((opt) => {
             const diff = opt.ai - opt.market
             const diffLabel = diff > 0 ? t('decision.undervalued', { diff: Math.abs(diff) }) : diff < 0 ? t('decision.overvalued', { diff: Math.abs(diff) }) : t('decision.even')
             return (
-              <div key={opt.name} className="flex items-center justify-between bg-white/60 rounded-lg px-4 py-2.5">
-                <span className="font-medium text-charcoal text-sm">{opt.name}</span>
-                <div className="flex items-center gap-4 text-sm">
-                  <span className="text-charcoal/60">
-                    {t('decision.market')} <span className="font-mono font-semibold text-charcoal">{opt.market}%</span>
-                  </span>
-                  <span className="text-charcoal/30">→</span>
-                  <span className="text-charcoal/60">
-                    {t('decision.ai')} <span className="font-mono font-semibold text-charcoal">{opt.ai}%</span>
-                  </span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                    diff > 0 ? 'bg-emerald-100 text-emerald-700' :
-                    diff < 0 ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-600'
+              <div key={opt.name} className="workspace-subpanel rounded-[24px] p-4 md:p-5">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold uppercase tracking-[0.18em] text-charcoal/40">{opt.name}</div>
+                    <div className="mt-3 flex items-end gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-charcoal/40">{t('decision.market')}</div>
+                        <div className="mt-1 text-2xl font-semibold text-charcoal">{opt.market}%</div>
+                      </div>
+                      <div className="pb-1 text-charcoal/20">→</div>
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-charcoal/40">{t('decision.ai')}</div>
+                        <div className="mt-1 text-2xl font-semibold text-charcoal">{opt.ai}%</div>
+                      </div>
+                    </div>
+                  </div>
+                  <span className={`inline-flex self-start rounded-full px-3 py-1.5 text-xs font-semibold ${
+                    diff > 0 ? 'tone-safe-badge' :
+                    diff < 0 ? 'tone-danger-badge' :
+                    'tone-reject-badge'
                   }`}>
                     {diffLabel}
                   </span>
@@ -153,28 +161,30 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
         </div>
 
         {/* Risk + Direction */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-lg">{risk.emoji}</span>
-            <span className={`text-sm font-medium px-2.5 py-1 rounded-full ${risk.badge}`}>
-              {t(risk.labelKey)}
-            </span>
-            <span className="text-sm text-charcoal/60">— {decision.risk_reason}</span>
+        <div className={`workspace-subpanel rounded-[24px] p-4 ${risk.surface}`}>
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 text-lg">{risk.emoji}</div>
+            <div>
+              <div className="text-sm font-semibold text-charcoal">{t(risk.labelKey)}</div>
+              <p className="mt-1 text-sm leading-6 text-charcoal/68">{decision.risk_reason}</p>
+            </div>
           </div>
         </div>
 
         {/* Recommendation */}
-        <div className="bg-white/80 rounded-lg px-4 py-3 border border-charcoal/5">
-          <div className="text-sm text-charcoal/60 mb-1">{t('decision.recommendation')}</div>
-          <div className="font-medium text-charcoal">{directionMap[decision.direction] ? t(directionMap[decision.direction]) : decision.direction}</div>
-          <div className="text-sm text-charcoal/60 mt-1">{decision.recommendation}</div>
+        <div className="workspace-subpanel rounded-[24px] px-4 py-4 md:px-5">
+          <div className="section-label mb-2">{t('decision.recommendation')}</div>
+          <div className="font-semibold text-charcoal text-lg">
+            {directionMap[decision.direction] ? t(directionMap[decision.direction]) : decision.direction}
+          </div>
+          <div className="text-sm text-charcoal/62 mt-2 leading-6">{decision.recommendation}</div>
         </div>
 
         {/* Action Buttons */}
         <div className="flex gap-3">
           <button
             onClick={() => setExpanded(!expanded)}
-            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-charcoal/70 bg-white/60 hover:bg-white border border-charcoal/10 rounded-lg transition-colors"
+            className="theme-surface-button flex-1 inline-flex items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-medium transition-colors"
           >
             {expanded ? (
               <>{t('decision.hideDetails')} <ChevronUp className="w-4 h-4" /></>
@@ -187,7 +197,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
               href={eventUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-terracotta hover:bg-[#C05638] rounded-lg transition-colors"
+              className="theme-contrast-button inline-flex items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-medium transition-colors"
             >
               {t('decision.viewOnPolymarket')} <ExternalLink className="w-4 h-4" />
             </a>
@@ -197,8 +207,10 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
 
       {/* Expandable Detail */}
       {expanded && detail && (
-        <div className="prose prose-stone max-w-none bg-white p-8 border border-charcoal/5 rounded-lg shadow-sm animate-fade-in-up prose-headings:font-serif prose-headings:font-normal prose-h2:text-charcoal prose-p:text-charcoal/80 prose-a:text-terracotta">
+        <div className="workspace-frame rounded-[28px] p-7 md:p-8 animate-fade-in-up">
+          <div className="article-prose">
           <ReactMarkdown>{detail}</ReactMarkdown>
+          </div>
         </div>
       )}
     </div>

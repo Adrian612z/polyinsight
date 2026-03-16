@@ -1,21 +1,40 @@
 import { Router, Request, Response } from 'express'
+import { authMiddleware } from '../middleware/auth.js'
+import { supabase } from '../services/supabase.js'
 import { createWalletFromSeed, getWalletBySeed } from '../services/wallet.js'
 
 const router = Router()
+const walletLookupKey = (userId: string) => `user:${userId}`
 
-// POST /api/wallet/create - Create a wallet from seed
-router.post('/create', async (req: Request, res: Response) => {
+// POST /api/wallet/create - Create or fetch the authenticated user's wallet
+router.post('/create', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { seed } = req.body
-
-    if (!seed || typeof seed !== 'string') {
-      res.status(400).json({ error: 'seed is required and must be a string' })
+    const userId = req.userId!
+    const currentWallet = await getWalletBySeed(walletLookupKey(userId))
+    if (currentWallet) {
+      res.json({ address: currentWallet.address })
       return
     }
 
-    const wallet = await createWalletFromSeed(seed)
+    const legacySeed = typeof req.body?.legacySeed === 'string' ? req.body.legacySeed.trim() : ''
+    if (legacySeed) {
+      const { data: user } = await supabase
+        .from('users')
+        .select('display_name')
+        .eq('id', userId)
+        .single()
+
+      if (user?.display_name && user.display_name === legacySeed) {
+        const legacyWallet = await getWalletBySeed(legacySeed)
+        if (legacyWallet) {
+          res.json({ address: legacyWallet.address })
+          return
+        }
+      }
+    }
+
+    const wallet = await createWalletFromSeed(walletLookupKey(userId))
     res.json({
-      seed: wallet.seed,
       address: wallet.address,
     })
   } catch (err) {
@@ -24,22 +43,10 @@ router.post('/create', async (req: Request, res: Response) => {
   }
 })
 
-// GET /api/wallet/address?seed=xxx - Query wallet address by seed
-router.get('/address', async (req: Request, res: Response) => {
+// GET /api/wallet/address - Query the authenticated user's wallet address
+router.get('/address', authMiddleware, async (_req: Request, res: Response) => {
   try {
-    const seed = req.query.seed as string
-
-    if (!seed) {
-      res.status(400).json({ error: 'seed query parameter is required' })
-      return
-    }
-
-    const wallet = await getWalletBySeed(seed)
-    if (!wallet) {
-      res.status(404).json({ error: 'Wallet not found for this seed' })
-      return
-    }
-
+    const wallet = await createWalletFromSeed(walletLookupKey(_req.userId!))
     res.json({ address: wallet.address })
   } catch (err) {
     console.error('Get wallet error:', err)

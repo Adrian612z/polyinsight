@@ -7,6 +7,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { X, Loader } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import {
   detectInstalledWallets,
   connectByProvider,
@@ -65,6 +66,7 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
   onConnect,
   onClose,
 }) => {
+  const { t } = useTranslation()
   const [installed, setInstalled] = useState<AnnouncedWallet[]>([])
   const [scanning, setScanning] = useState(true)
   const [connectingId, setConnectingId] = useState<string | null>(null)
@@ -89,7 +91,7 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
       onConnect(connected)
     } catch (err) {
       console.error('Connection error:', err)
-      setError(err instanceof Error ? err.message : 'Connection failed')
+      setError(err instanceof Error ? err.message : t('walletSelector.errors.connectionFailed'))
       setConnectingId(null)
     }
   }
@@ -116,7 +118,7 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
       onConnect(connected)
     } catch (err) {
       console.error('Connection error:', err)
-      setError(err instanceof Error ? err.message : 'Connection failed')
+      setError(err instanceof Error ? err.message : t('walletSelector.errors.connectionFailed'))
       setConnectingId(null)
     }
   }
@@ -127,7 +129,7 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">选择钱包</h3>
+          <h3 className="text-lg font-semibold text-gray-900">{t('walletSelector.title')}</h3>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
@@ -143,12 +145,12 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <Loader size={24} className="animate-spin text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-500">检测钱包中...</p>
+                <p className="text-sm text-gray-500">{t('walletSelector.scanning')}</p>
               </div>
             </div>
           ) : installed.length > 0 ? (
             <div className="mb-6">
-              <p className="text-xs font-medium text-indigo-600 mb-3 px-2 uppercase tracking-wider">已安装</p>
+              <p className="text-xs font-medium text-indigo-600 mb-3 px-2 uppercase tracking-wider">{t('walletSelector.installed')}</p>
               <div className="space-y-2">
                 {installed.map((wallet) => (
                   <WalletRow
@@ -167,7 +169,7 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
           {/* Popular wallets */}
           {popular.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-gray-500 mb-3 px-2 uppercase tracking-wider">推荐</p>
+              <p className="text-xs font-medium text-gray-500 mb-3 px-2 uppercase tracking-wider">{t('walletSelector.recommended')}</p>
               <div className="space-y-2">
                 {popular.map((wallet) => (
                   <WalletRow
@@ -193,14 +195,14 @@ export const WalletSelectorModal: React.FC<WalletSelectorModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 text-center">
-          <span className="text-xs text-gray-500">对以太坊钱包不熟悉？</span>
+          <span className="text-xs text-gray-500">{t('walletSelector.footer.prefix')}</span>
           <a
             href="https://ethereum.org/wallets/"
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs text-indigo-600 hover:underline ml-1"
           >
-            了解更多
+            {t('walletSelector.footer.link')}
           </a>
         </div>
       </div>

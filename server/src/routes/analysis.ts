@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { deductCredits } from '../services/credit.js'
+import { deductCredits, refundAnalysisCreditsIfNeeded } from '../services/credit.js'
 import { config } from '../config.js'
 
 const router = Router()
@@ -84,19 +84,49 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
       throw err
     }
 
-    // 3. Trigger n8n webhook (fire-and-forget)
+    // 3. Trigger n8n webhook asynchronously; stale/failed records are refunded later.
     const webhookUrl = validLang === 'zh' ? config.n8nWebhookUrlZh : config.n8nWebhookUrl
-    fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        url,
-        user_id: userId,
-        record_id: record.id,
-      }),
-    }).catch((err) => {
-      console.error('n8n webhook error:', err)
-    })
+    const failAnalysisAndRefund = async (reason: string) => {
+      try {
+        await supabase
+          .from('analysis_records')
+          .update({
+            status: 'failed',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', record.id)
+          .eq('user_id', userId)
+          .eq('status', 'pending')
+
+        await refundAnalysisCreditsIfNeeded(
+          userId,
+          record.id,
+          `Refund for analysis that failed to start: ${url.slice(0, 60)}...`
+        )
+      } catch (refundErr) {
+        console.error('Failed to mark analysis as failed/refunded:', refundErr)
+      }
+
+      console.error('n8n webhook error:', reason)
+    }
+
+    void fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url,
+          user_id: userId,
+          record_id: record.id,
+        }),
+      })
+      .then(async (response) => {
+        if (!response.ok) {
+          await failAnalysisAndRefund(`Webhook responded with status ${response.status}`)
+        }
+      })
+      .catch(async (err) => {
+        await failAnalysisAndRefund(err instanceof Error ? err.message : 'Unknown webhook error')
+      })
 
     res.json({
       record_id: record.id,

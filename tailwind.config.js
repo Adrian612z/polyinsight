@@ -1,7 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 
 export default {
-  // darkMode: "class", // Removed for minimalist design
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     container: {
@@ -9,16 +8,16 @@ export default {
     },
     extend: {
       colors: {
-        'warm-white': '#F9F7F5', // Main background
-        'sand': '#F4F1DE', // Secondary bg / Cards
-        'terracotta': '#D97757', // Primary Action (modified from #E07A5F for slightly deeper tone)
-        'charcoal': '#3D405B', // Primary Text
-        'stone-gray': '#8D8D8D', // Secondary Text
-        'soft-border': '#EAEAEA',
+        'warm-white': 'rgb(var(--c-warm-white) / <alpha-value>)',
+        'sand': 'rgb(var(--c-sand) / <alpha-value>)',
+        'terracotta': 'rgb(var(--c-accent) / <alpha-value>)',
+        'charcoal': 'rgb(var(--c-ink) / <alpha-value>)',
+        'stone-gray': 'rgb(var(--c-stone-gray) / <alpha-value>)',
+        'soft-border': 'rgb(var(--c-soft-border) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-        serif: ['Merriweather', 'serif'],
+        sans: ['Manrope', 'sans-serif'],
+        serif: ['Space Grotesk', 'sans-serif'],
       },
       typography: (theme) => ({
         DEFAULT: {

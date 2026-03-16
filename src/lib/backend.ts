@@ -52,6 +52,33 @@ async function apiRequest(path: string, options: RequestInit = {}) {
   return data
 }
 
+async function publicRequest(path: string) {
+  const res = await fetch(`${API_BASE}${path}`)
+  const raw = await res.text()
+  const contentType = res.headers.get('content-type') || ''
+  let data: any = null
+
+  if (raw) {
+    if (contentType.includes('application/json')) {
+      data = JSON.parse(raw)
+    } else {
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        data = { error: `Request failed with status ${res.status}` }
+      }
+    }
+  }
+
+  if (!res.ok) {
+    const error = new Error(data?.error || `Request failed with status ${res.status}`) as Error & { status?: number }
+    error.status = res.status
+    throw error
+  }
+
+  return data
+}
+
 export const api = {
   // Users
   register: (body: { email?: string; displayName?: string; referralCode?: string }) =>
@@ -84,15 +111,24 @@ export const api = {
 
   // Featured (public, no auth needed)
   getFeatured: (category?: string) =>
-    fetch(`${API_BASE}/featured${category ? `?category=${category}` : ''}`).then(r => r.json()),
+    publicRequest(`/featured${category ? `?category=${category}` : ''}`),
 
   // Trending (public, live from Polymarket)
   getTrending: (limit = 12) =>
-    fetch(`${API_BASE}/trending?limit=${limit}`).then(r => r.json()),
+    publicRequest(`/trending?limit=${limit}`),
 
   // Wallet
-  getOrCreateWallet: (seed: string) =>
-    apiRequest('/wallet/create', { method: 'POST', body: JSON.stringify({ seed }) }),
+  getOrCreateWallet: (legacySeed?: string) =>
+    apiRequest('/wallet/create', { method: 'POST', body: JSON.stringify({ legacySeed }) }),
+
+  saveTransaction: (body: {
+    tx_hash: string
+    from_address: string
+    to_address: string
+    chain_name: string
+    token_symbol: string
+    amount: string
+  }) => apiRequest('/transactions', { method: 'POST', body: JSON.stringify(body) }),
 
   // Admin
   adminDashboard: () => apiRequest('/admin/dashboard'),

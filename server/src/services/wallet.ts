@@ -10,26 +10,33 @@ export interface WalletRecord {
 }
 
 /**
- * Create a wallet from a seed string and save to database.
- * Uses keccak256 hash of the seed as the private key.
+ * Create a per-user wallet if one does not already exist.
+ * The seed acts only as an internal lookup key, not as wallet entropy.
  */
 export async function createWalletFromSeed(seed: string): Promise<WalletRecord> {
-  // Derive a deterministic private key from the seed string
-  const privateKey = ethers.keccak256(ethers.toUtf8Bytes(seed))
-  const wallet = new ethers.Wallet(privateKey)
+  const { data: existing } = await supabase
+    .from('wallets')
+    .select('*')
+    .eq('seed', seed)
+    .single()
+
+  if (existing) {
+    return existing as WalletRecord
+  }
+
+  const wallet = ethers.Wallet.createRandom()
 
   const { data, error } = await supabase
     .from('wallets')
     .insert({
       seed,
-      private_key: privateKey,
+      private_key: wallet.privateKey,
       address: wallet.address,
     })
     .select()
     .single()
 
   if (error) {
-    // If seed already exists, return existing record
     if (error.code === '23505') {
       const { data: existing } = await supabase
         .from('wallets')

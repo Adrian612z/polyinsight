@@ -1,15 +1,18 @@
 import { Router, Request, Response } from 'express'
+import { authMiddleware } from '../middleware/auth.js'
+import { adminMiddleware } from '../middleware/admin.js'
 import { supabase } from '../services/supabase.js'
 
 const router = Router()
+const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/
 
 // POST /api/transactions - Save a transaction hash
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { tx_hash, from_address, to_address, chain_name, token_symbol, amount } = req.body
 
-    if (!tx_hash || typeof tx_hash !== 'string') {
-      res.status(400).json({ error: 'tx_hash is required' })
+    if (!tx_hash || typeof tx_hash !== 'string' || !TX_HASH_REGEX.test(tx_hash)) {
+      res.status(400).json({ error: 'A valid EVM tx_hash is required' })
       return
     }
 
@@ -42,7 +45,7 @@ router.post('/', async (req: Request, res: Response) => {
 })
 
 // GET /api/transactions - List transactions
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', authMiddleware, adminMiddleware, async (req: Request, res: Response) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100)
     const page = Math.max(parseInt(req.query.page as string) || 1, 1)

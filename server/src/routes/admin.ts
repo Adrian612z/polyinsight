@@ -109,8 +109,10 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       supabase.from('users').select('id, referred_by'),
     ])
 
-    const sumByType = (types: string[]) =>
-      (creditStats || []).filter(t => types.includes(t.type)).reduce((s, t) => s + Math.abs(t.amount), 0)
+    const sumByType = (types: string[], absolute = true) =>
+      (creditStats || [])
+        .filter(t => types.includes(t.type))
+        .reduce((s, t) => s + (absolute ? Math.abs(t.amount) : t.amount), 0)
 
     // Count unique referrers (users who have invited at least one person)
     const referrerSet = new Set((allUsers || []).filter(u => u.referred_by).map(u => u.referred_by))
@@ -125,7 +127,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       adminGrant: sumByType(['admin_grant']),
       signupBonus: sumByType(['signup_bonus']),
       analysisSpent: sumByType(['analysis_spend']),
-      referralCommission: sumByType(['referral_commission']),
+      referralCommission: sumByType(['referral_commission'], false),
       // Referral stats
       referralCount: referralCount || 0,
       activeReferrers: referrerSet.size,
