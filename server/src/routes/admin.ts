@@ -4,6 +4,7 @@ import { PrivyClient } from '@privy-io/server-auth'
 import { supabase } from '../services/supabase.js'
 import { config } from '../config.js'
 import { grantCredits } from '../services/credit.js'
+import { approveBillingOrder, rejectBillingOrder } from '../services/billing.js'
 
 const router = Router()
 const privy = new PrivyClient(config.privyAppId, config.privyAppSecret)
@@ -445,6 +446,129 @@ router.get('/transactions', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Transactions error:', err)
     res.status(500).json({ error: 'Failed to fetch transactions' })
+  }
+})
+
+// ─── Billing Orders Review ────────────────────────────────────────
+router.get('/billing/orders', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100)
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    const status = (req.query.status as string) || ''
+    const planId = (req.query.planId as string) || ''
+
+    let query = supabase
+      .from('billing_orders')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (status) query = query.eq('status', status)
+    if (planId) query = query.eq('plan_id', planId)
+
+    const { data, error, count } = await query.range(from, to)
+
+    if (error) throw error
+
+    res.json({
+      orders: data,
+      total: count,
+      page,
+      pages: Math.ceil((count || 0) / limit),
+    })
+  } catch (err) {
+    console.error('Billing orders error:', err)
+    res.status(500).json({ error: 'Failed to fetch billing orders' })
+  }
+})
+
+router.get('/billing/subscriptions', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100)
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    const status = (req.query.status as string) || ''
+    const planId = (req.query.planId as string) || ''
+
+    let query = supabase
+      .from('user_subscriptions')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (status) query = query.eq('status', status)
+    if (planId) query = query.eq('plan_id', planId)
+
+    const { data, error, count } = await query.range(from, to)
+
+    if (error) throw error
+
+    res.json({
+      subscriptions: data,
+      total: count,
+      page,
+      pages: Math.ceil((count || 0) / limit),
+    })
+  } catch (err) {
+    console.error('Billing subscriptions error:', err)
+    res.status(500).json({ error: 'Failed to fetch billing subscriptions' })
+  }
+})
+
+router.post('/billing/orders/:id/approve', async (req: Request, res: Response) => {
+  try {
+    const reviewNote = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote : undefined
+    const result = await approveBillingOrder(req.params.id, req.userId!, reviewNote)
+    res.json(result)
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'ORDER_NOT_FOUND') {
+        res.status(404).json({ error: 'Billing order not found' })
+        return
+      }
+      if (err.message === 'ORDER_ALREADY_APPROVED') {
+        res.status(409).json({ error: 'Billing order already approved' })
+        return
+      }
+      if (err.message === 'ORDER_NOT_APPROVABLE') {
+        res.status(409).json({ error: 'Billing order cannot be approved' })
+        return
+      }
+      if (err.message === 'ORDER_MISSING_TX') {
+        res.status(409).json({ error: 'Billing order has no submitted transaction yet' })
+        return
+      }
+    }
+
+    console.error('Approve billing order error:', err)
+    res.status(500).json({ error: 'Failed to approve billing order' })
+  }
+})
+
+router.post('/billing/orders/:id/reject', async (req: Request, res: Response) => {
+  try {
+    const reviewNote = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote : undefined
+    const order = await rejectBillingOrder(req.params.id, req.userId!, reviewNote)
+    res.json({ order })
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'ORDER_NOT_FOUND') {
+        res.status(404).json({ error: 'Billing order not found' })
+        return
+      }
+      if (err.message === 'ORDER_ALREADY_APPROVED') {
+        res.status(409).json({ error: 'Billing order already approved' })
+        return
+      }
+      if (err.message === 'ORDER_ALREADY_REJECTED') {
+        res.status(409).json({ error: 'Billing order already rejected' })
+        return
+      }
+    }
+
+    console.error('Reject billing order error:', err)
+    res.status(500).json({ error: 'Failed to reject billing order' })
   }
 })
 

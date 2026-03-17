@@ -3,6 +3,7 @@ import { randomInt } from 'crypto'
 import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { config } from '../config.js'
+import { getActiveSubscription } from '../services/billing.js'
 
 const router = Router()
 
@@ -125,7 +126,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       return
     }
 
-    res.json({ user })
+    const activeSubscription = await getActiveSubscription(req.userId!)
+
+    res.json({ user, activeSubscription })
   } catch (err) {
     console.error('Get user error:', err)
     res.status(500).json({ error: 'Failed to fetch user info' })

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { supabase } from '../services/supabase.js'
+import { getFeaturedSignalStrength, isRenderableFeatured, type FeaturedRecord } from '../services/featured.js'
 
 const router = Router()
 
@@ -24,7 +25,13 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (error) throw error
 
-    res.json({ featured: data || [] })
+    const featured = (data || [])
+      .filter((item) => isRenderableFeatured(item as FeaturedRecord))
+      .sort((a, b) =>
+        getFeaturedSignalStrength(b as FeaturedRecord) - getFeaturedSignalStrength(a as FeaturedRecord)
+      )
+
+    res.json({ featured })
   } catch (err) {
     console.error('Featured error:', err)
     res.status(500).json({ error: 'Failed to fetch featured analyses' })

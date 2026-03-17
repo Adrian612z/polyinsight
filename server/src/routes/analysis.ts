@@ -4,6 +4,8 @@ import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { deductCredits, refundAnalysisCreditsIfNeeded } from '../services/credit.js'
 import { config } from '../config.js'
+import { extractPolymarketSlug, isValidPolymarketUrl, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
+import { getActiveSubscription } from '../services/billing.js'
 
 const router = Router()
 
@@ -17,20 +19,6 @@ const createAnalysisLimiter = rateLimit({
   message: { error: 'Analysis submission rate limit exceeded, please try again later' },
 })
 
-// Validate that URL is a legitimate Polymarket URL (prevent SSRF)
-function isValidPolymarketUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    return (
-      (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
-      (parsed.hostname === 'polymarket.com' || parsed.hostname.endsWith('.polymarket.com')) &&
-      parsed.pathname.startsWith('/event/')
-    )
-  } catch {
-    return false
-  }
-}
-
 // POST /api/analysis - Create analysis with credit deduction
 router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res: Response) => {
   try {
@@ -43,21 +31,30 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
     }
 
     if (!isValidPolymarketUrl(url)) {
-      res.status(400).json({ error: 'Invalid URL. Only Polymarket event URLs are accepted (https://polymarket.com/event/...)' })
+      res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
+      return
+    }
+
+    const slug = extractPolymarketSlug(url)
+    const canonicalUrl = toCanonicalPolymarketEventUrl(url)
+    if (!slug || !canonicalUrl) {
+      res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
       return
     }
 
     // Validate lang parameter
     const validLang = lang === 'zh' ? 'zh' : 'en'
+    const activeSubscription = await getActiveSubscription(userId)
+    const hasUnlimitedAccess = Boolean(activeSubscription?.unlimited)
 
     // 1. Create analysis record
     const { data: record, error: dbError } = await supabase
       .from('analysis_records')
       .insert({
-        event_url: url,
+        event_url: canonicalUrl,
         status: 'pending',
         user_id: userId,
-        credits_charged: config.analysisCost,
+        credits_charged: hasUnlimitedAccess ? 0 : config.analysisCost,
       })
       .select()
       .single()
@@ -66,22 +63,32 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
 
     // 2. Deduct credits (includes referral commission)
     let newBalance: number
-    try {
-      newBalance = await deductCredits(
-        userId,
-        config.analysisCost,
-        'analysis_spend',
-        record.id,
-        `Analysis: ${url.slice(0, 60)}...`
-      )
-    } catch (err: unknown) {
-      // Rollback: delete the record
-      await supabase.from('analysis_records').delete().eq('id', record.id)
-      if (err instanceof Error && err.message === 'INSUFFICIENT_CREDITS') {
-        res.status(402).json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' })
-        return
+    if (hasUnlimitedAccess) {
+      const { data: userBalance } = await supabase
+        .from('users')
+        .select('credit_balance')
+        .eq('id', userId)
+        .single()
+
+      newBalance = userBalance?.credit_balance ?? 0
+    } else {
+      try {
+        newBalance = await deductCredits(
+          userId,
+          config.analysisCost,
+          'analysis_spend',
+          record.id,
+          `Analysis: ${canonicalUrl.slice(0, 60)}...`
+        )
+      } catch (err: unknown) {
+        // Rollback: delete the record
+        await supabase.from('analysis_records').delete().eq('id', record.id)
+        if (err instanceof Error && err.message === 'INSUFFICIENT_CREDITS') {
+          res.status(402).json({ error: 'Insufficient credits', code: 'INSUFFICIENT_CREDITS' })
+          return
+        }
+        throw err
       }
-      throw err
     }
 
     // 3. Trigger n8n webhook asynchronously; stale/failed records are refunded later.
@@ -101,7 +108,7 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
         await refundAnalysisCreditsIfNeeded(
           userId,
           record.id,
-          `Refund for analysis that failed to start: ${url.slice(0, 60)}...`
+          `Refund for analysis that failed to start: ${canonicalUrl.slice(0, 60)}...`
         )
       } catch (refundErr) {
         console.error('Failed to mark analysis as failed/refunded:', refundErr)
@@ -114,7 +121,9 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url,
+          url: canonicalUrl,
+          original_url: url,
+          slug,
           user_id: userId,
           record_id: record.id,
         }),
@@ -195,11 +204,38 @@ router.get('/:id/poll', authMiddleware, async (req: Request, res: Response) => {
 router.post('/:id/cancel', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
-    const { data, error } = await supabase
+    const { data: record, error: recordErr } = await supabase
       .from('analysis_records')
-      .update({ status: 'cancelled' })
+      .select('id, status, event_url')
       .eq('id', req.params.id)
       .eq('user_id', userId)
+      .maybeSingle()
+
+    if (recordErr) throw recordErr
+    if (!record) {
+      res.status(404).json({ error: 'Record not found' })
+      return
+    }
+
+    if (record.status === 'completed' || record.status === 'failed') {
+      res.status(409).json({ error: 'Only pending analyses can be cancelled' })
+      return
+    }
+
+    if (record.status === 'cancelled') {
+      res.json({ success: true, refunded: false })
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .eq('status', 'pending')
       .select('id')
 
     if (error) throw error
@@ -208,7 +244,13 @@ router.post('/:id/cancel', authMiddleware, async (req: Request, res: Response) =
       return
     }
 
-    res.json({ success: true })
+    const refund = await refundAnalysisCreditsIfNeeded(
+      userId,
+      req.params.id,
+      `Refund for cancelled analysis: ${record.event_url.slice(0, 60)}...`
+    )
+
+    res.json({ success: true, refunded: refund.refunded, balance: refund.balance })
   } catch (err) {
     console.error('Cancel error:', err)
     res.status(500).json({ error: 'Failed to cancel analysis' })

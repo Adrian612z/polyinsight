@@ -185,7 +185,6 @@ export const Layout: React.FC = () => {
           <Suspense fallback={null}>
             <AddCreditsModal
               walletAddress={walletAddress}
-              username={displayName || undefined}
               onClose={() => setAddCreditsOpen(false)}
             />
           </Suspense>

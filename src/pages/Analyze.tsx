@@ -7,6 +7,7 @@ import { ProgressiveResult } from '../components/ProgressiveResult'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore, useSessionList, type AnalysisSession } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
+import { formatPolymarketSlugLabel } from '../lib/polymarket'
 
 export const Analyze: React.FC = () => {
   const { t, i18n } = useTranslation()
@@ -150,11 +151,6 @@ export const Analyze: React.FC = () => {
 
 // --- Session Card Component ---
 
-function extractSlug(url: string): string {
-  const match = url.match(/polymarket\.com\/event\/([^/?#]+)/)
-  return match ? match[1].replace(/-/g, ' ').slice(0, 50) : url.slice(0, 50)
-}
-
 function countSteps(partialResult: string | null): { done: number; total: number } {
   const total = 4
   if (!partialResult) return { done: 0, total }
@@ -212,7 +208,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
 
         {/* URL slug */}
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-charcoal truncate">{extractSlug(session.url)}</div>
+          <div className="text-sm font-semibold text-charcoal truncate">{formatPolymarketSlugLabel(session.url)}</div>
           <div className="mt-1 text-xs text-charcoal/42 font-mono truncate">{session.url}</div>
         </div>
 

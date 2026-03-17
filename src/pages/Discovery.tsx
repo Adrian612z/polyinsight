@@ -71,164 +71,6 @@ interface FeaturedAnalysis {
   created_at: string
 }
 
-const FORCE_MOCK_FEATURED = true
-
-function getMockTrending(isZh: boolean): TrendingEvent[] {
-  if (isZh) {
-    return [
-      {
-        slug: 'fed-cut-june',
-        title: '美联储会在 2026 年 6 月前启动降息吗？',
-        image: '',
-        url: 'https://polymarket.com/event/fed-cut-june-2026',
-        volume: 1840000,
-        volume24hr: 248000,
-        endDate: '2026-06-18',
-        markets: [
-          { question: '美联储会在 2026 年 6 月前启动降息吗？', outcomes: ['Yes', 'No'], prices: [0.43, 0.57], volume: 1840000 },
-        ],
-      },
-      {
-        slug: 'openai-ipo-2026',
-        title: 'OpenAI 会在 2026 年内推进 IPO 吗？',
-        image: '',
-        url: 'https://polymarket.com/event/openai-ipo-2026',
-        volume: 1220000,
-        volume24hr: 176000,
-        endDate: '2026-12-31',
-        markets: [
-          { question: 'OpenAI 会在 2026 年内推进 IPO 吗？', outcomes: ['Yes', 'No'], prices: [0.31, 0.69], volume: 1220000 },
-        ],
-      },
-      {
-        slug: 'nba-champion-2026',
-        title: '2026 NBA 总冠军归属',
-        image: '',
-        url: 'https://polymarket.com/event/nba-champion-2026',
-        volume: 2640000,
-        volume24hr: 362000,
-        endDate: '2026-06-20',
-        markets: [
-          { question: '凯尔特人', outcomes: ['Yes', 'No'], prices: [0.24, 0.76], volume: 840000 },
-          { question: '掘金', outcomes: ['Yes', 'No'], prices: [0.19, 0.81], volume: 790000 },
-        ],
-      },
-      {
-        slug: 'bitcoin-150k',
-        title: '比特币会在 2026 年前触及 $150k 吗？',
-        image: '',
-        url: 'https://polymarket.com/event/bitcoin-150k-2026',
-        volume: 3180000,
-        volume24hr: 418000,
-        endDate: '2026-12-31',
-        markets: [
-          { question: '比特币会在 2026 年前触及 $150k 吗？', outcomes: ['Yes', 'No'], prices: [0.12, 0.88], volume: 3180000 },
-        ],
-      },
-      {
-        slug: 'thai-pm-march',
-        title: '下一任泰国总理会在 3 月底前敲定吗？',
-        image: '',
-        url: 'https://polymarket.com/event/next-thai-prime-minister-chosen-by-march-31',
-        volume: 960000,
-        volume24hr: 134000,
-        endDate: '2026-03-31',
-        markets: [
-          { question: '下一任泰国总理会在 3 月底前敲定吗？', outcomes: ['Yes', 'No'], prices: [0.92, 0.08], volume: 960000 },
-        ],
-      },
-      {
-        slug: 'wrexham-epl',
-        title: 'Wrexham 会升入英超吗？',
-        image: '',
-        url: 'https://polymarket.com/event/will-wrexham-be-promoted-to-the-epl',
-        volume: 1410000,
-        volume24hr: 205000,
-        endDate: '2026-05-28',
-        markets: [
-          { question: 'Wrexham 会升入英超吗？', outcomes: ['Yes', 'No'], prices: [0.27, 0.73], volume: 1410000 },
-        ],
-      },
-    ]
-  }
-
-  return [
-    {
-      slug: 'fed-cut-june',
-      title: 'Will the Fed start cutting before June 2026?',
-      image: '',
-      url: 'https://polymarket.com/event/fed-cut-june-2026',
-      volume: 1840000,
-      volume24hr: 248000,
-      endDate: '2026-06-18',
-      markets: [
-        { question: 'Will the Fed start cutting before June 2026?', outcomes: ['Yes', 'No'], prices: [0.43, 0.57], volume: 1840000 },
-      ],
-    },
-    {
-      slug: 'openai-ipo-2026',
-      title: 'Will OpenAI make a real IPO push in 2026?',
-      image: '',
-      url: 'https://polymarket.com/event/openai-ipo-2026',
-      volume: 1220000,
-      volume24hr: 176000,
-      endDate: '2026-12-31',
-      markets: [
-        { question: 'Will OpenAI make a real IPO push in 2026?', outcomes: ['Yes', 'No'], prices: [0.31, 0.69], volume: 1220000 },
-      ],
-    },
-    {
-      slug: 'nba-champion-2026',
-      title: '2026 NBA Champion',
-      image: '',
-      url: 'https://polymarket.com/event/nba-champion-2026',
-      volume: 2640000,
-      volume24hr: 362000,
-      endDate: '2026-06-20',
-      markets: [
-        { question: 'Celtics', outcomes: ['Yes', 'No'], prices: [0.24, 0.76], volume: 840000 },
-        { question: 'Nuggets', outcomes: ['Yes', 'No'], prices: [0.19, 0.81], volume: 790000 },
-      ],
-    },
-    {
-      slug: 'bitcoin-150k',
-      title: 'Will Bitcoin hit $150k before 2026 ends?',
-      image: '',
-      url: 'https://polymarket.com/event/bitcoin-150k-2026',
-      volume: 3180000,
-      volume24hr: 418000,
-      endDate: '2026-12-31',
-      markets: [
-        { question: 'Will Bitcoin hit $150k before 2026 ends?', outcomes: ['Yes', 'No'], prices: [0.12, 0.88], volume: 3180000 },
-      ],
-    },
-    {
-      slug: 'thai-pm-march',
-      title: 'Will Thailand choose its next prime minister by March 31?',
-      image: '',
-      url: 'https://polymarket.com/event/next-thai-prime-minister-chosen-by-march-31',
-      volume: 960000,
-      volume24hr: 134000,
-      endDate: '2026-03-31',
-      markets: [
-        { question: 'Will Thailand choose its next prime minister by March 31?', outcomes: ['Yes', 'No'], prices: [0.92, 0.08], volume: 960000 },
-      ],
-    },
-    {
-      slug: 'wrexham-epl',
-      title: 'Will Wrexham be promoted to the EPL?',
-      image: '',
-      url: 'https://polymarket.com/event/will-wrexham-be-promoted-to-the-epl',
-      volume: 1410000,
-      volume24hr: 205000,
-      endDate: '2026-05-28',
-      markets: [
-        { question: 'Will Wrexham be promoted to the EPL?', outcomes: ['Yes', 'No'], prices: [0.27, 0.73], volume: 1410000 },
-      ],
-    },
-  ]
-}
-
 function formatVolume(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
   if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`
@@ -322,148 +164,18 @@ function getStrongestOption(item: FeaturedAnalysis): { option: FeaturedOption; d
   return strongest
 }
 
-function getMockFeatured(isZh: boolean): FeaturedAnalysis[] {
-  if (isZh) {
-    return [
-      {
-        id: 'mock-fed-april',
-        event_slug: 'fed-cut-april-2026',
-        event_title: '美联储会在 2026 年 4 月前意外降息吗？',
-        category: 'economics',
-        polymarket_url: 'https://polymarket.com/event/fed-cut-april-2026',
-        analysis_record_id: null,
-        is_active: true,
-        expires_at: '2026-04-30T00:00:00.000Z',
-        created_at: '2026-03-15T00:00:00.000Z',
-        mispricing_score: 18.4,
-        decision_data: {
-          risk: 'safe',
-          deadline: '2026-04-30',
-          direction: '买 Yes',
-          recommendation: '市场仍然低估提前降息的情境，宏观数据和讲话节奏开始转向。',
-          options: [
-            { name: '是', market: 22, ai: 40.4 },
-            { name: '否', market: 78, ai: 59.6 },
-          ],
-        },
-      },
-      {
-        id: 'mock-arsenal',
-        event_slug: 'arsenal-top4-2026',
-        event_title: '阿森纳会在 2025-26 赛季结束前掉出前四吗？',
-        category: 'sports',
-        polymarket_url: 'https://polymarket.com/event/arsenal-top4-2026',
-        analysis_record_id: null,
-        is_active: true,
-        expires_at: '2026-05-20T00:00:00.000Z',
-        created_at: '2026-03-15T00:00:00.000Z',
-        mispricing_score: 14.8,
-        decision_data: {
-          risk: 'caution',
-          deadline: '2026-05-20',
-          direction: '买 No',
-          recommendation: '赛程强度和阵容深度并没有让市场当前的担忧充分定价。',
-          options: [
-            { name: 'Yes', market: 31, ai: 16.2 },
-            { name: 'No', market: 69, ai: 83.8 },
-          ],
-        },
-      },
-      {
-        id: 'mock-openai-cap',
-        event_slug: 'openai-ipo-market-cap',
-        event_title: 'OpenAI IPO 首日市值会落在哪个区间？',
-        category: 'ai',
-        polymarket_url: 'https://polymarket.com/event/openai-ipo-market-cap',
-        analysis_record_id: null,
-        is_active: true,
-        expires_at: '2026-12-31T00:00:00.000Z',
-        created_at: '2026-03-15T00:00:00.000Z',
-        mispricing_score: 12.1,
-        decision_data: {
-          risk: 'safe',
-          deadline: '2026-12-31',
-          direction: '关注中高估值区间',
-          recommendation: '市场对极端高估值区间的拥挤已经开始过度，分布并不平衡。',
-          options: [
-            { name: '$80B-$120B', market: 16, ai: 11 },
-            { name: '$120B-$180B', market: 24, ai: 36.1 },
-            { name: '$180B+', market: 60, ai: 52.9 },
-          ],
-        },
-      },
-    ]
-  }
+function getFeaturedSignalStrength(item: FeaturedAnalysis): number {
+  return getStrongestOption(item)?.diff ?? item.mispricing_score ?? 0
+}
 
-  return [
-    {
-      id: 'mock-fed-april',
-      event_slug: 'fed-cut-april-2026',
-      event_title: 'Will the Fed cut earlier than April 2026?',
-      category: 'economics',
-      polymarket_url: 'https://polymarket.com/event/fed-cut-april-2026',
-      analysis_record_id: null,
-      is_active: true,
-      expires_at: '2026-04-30T00:00:00.000Z',
-      created_at: '2026-03-15T00:00:00.000Z',
-      mispricing_score: 18.4,
-      decision_data: {
-        risk: 'safe',
-        deadline: '2026-04-30',
-        direction: 'Buy Yes',
-        recommendation: 'The market still underprices an earlier cut path as macro data and central-bank messaging soften.',
-        options: [
-          { name: 'Yes', market: 22, ai: 40.4 },
-          { name: 'No', market: 78, ai: 59.6 },
-        ],
-      },
-    },
-    {
-      id: 'mock-arsenal',
-      event_slug: 'arsenal-top4-2026',
-      event_title: 'Will Arsenal fall out of the top four before season end?',
-      category: 'sports',
-      polymarket_url: 'https://polymarket.com/event/arsenal-top4-2026',
-      analysis_record_id: null,
-      is_active: true,
-      expires_at: '2026-05-20T00:00:00.000Z',
-      created_at: '2026-03-15T00:00:00.000Z',
-      mispricing_score: 14.8,
-      decision_data: {
-        risk: 'caution',
-        deadline: '2026-05-20',
-        direction: 'Buy No',
-        recommendation: 'Fixture difficulty and squad depth do not justify the current level of market pessimism.',
-        options: [
-          { name: 'Yes', market: 31, ai: 16.2 },
-          { name: 'No', market: 69, ai: 83.8 },
-        ],
-      },
-    },
-    {
-      id: 'mock-openai-cap',
-      event_slug: 'openai-ipo-market-cap',
-      event_title: 'Where will OpenAI IPO day-one market cap land?',
-      category: 'ai',
-      polymarket_url: 'https://polymarket.com/event/openai-ipo-market-cap',
-      analysis_record_id: null,
-      is_active: true,
-      expires_at: '2026-12-31T00:00:00.000Z',
-      created_at: '2026-03-15T00:00:00.000Z',
-      mispricing_score: 12.1,
-      decision_data: {
-        risk: 'safe',
-        deadline: '2026-12-31',
-        direction: 'Watch the upper buckets',
-        recommendation: 'The market is already overcrowded in the extreme high-valuation tail, while the mid buckets look less efficiently priced.',
-        options: [
-          { name: '$80B-$120B', market: 16, ai: 11 },
-          { name: '$120B-$180B', market: 24, ai: 36.1 },
-          { name: '$180B+', market: 60, ai: 52.9 },
-        ],
-      },
-    },
-  ]
+function isRenderableFeatured(item: FeaturedAnalysis): boolean {
+  return Boolean(
+    item.is_active &&
+    item.decision_data &&
+    Array.isArray(item.decision_data.options) &&
+    item.decision_data.options.length > 0 &&
+    getFeaturedSignalStrength(item) >= 1
+  )
 }
 
 function getDiscoveryCopy(isZh: boolean) {
@@ -507,7 +219,6 @@ function getDiscoveryCopy(isZh: boolean) {
           '先把后台当前最值得点进去的一张信号卡放大展示，其他错价机会再横向排开。',
         empty: '当前还没有精选错价卡，等后台信号生成后会自动在这里滚动。',
         modeLive: '实时信号',
-        modeMock: '演示数据',
         stream: '更多机会',
         lead: '主信号',
         score: '错价分',
@@ -600,7 +311,6 @@ function getDiscoveryCopy(isZh: boolean) {
         'Put the strongest signal in front first. Keep the rest of the opportunity set in a horizontal rail below it.',
       empty: 'No featured signals are active right now. Once the backend scores new opportunities, they will appear here automatically.',
       modeLive: 'Live signal',
-      modeMock: 'Mock deck',
       stream: 'More signals',
       lead: 'Lead signal',
       score: 'Signal score',
@@ -662,8 +372,6 @@ export const Discovery: React.FC = () => {
   const isZh = i18n.language === 'zh'
   const isDark = resolvedTheme === 'dark'
   const copy = getDiscoveryCopy(isZh)
-  const mockFeatured = getMockFeatured(isZh)
-  const mockTrending = getMockTrending(isZh)
   const [events, setEvents] = useState<TrendingEvent[]>([])
   const [featured, setFeatured] = useState<FeaturedAnalysis[]>([])
   const [trendingLoading, setTrendingLoading] = useState(true)
@@ -719,10 +427,12 @@ export const Discovery: React.FC = () => {
     })
   }
 
-  const featuredItems = FORCE_MOCK_FEATURED || featured.length === 0 ? mockFeatured : featured
-  const usingMockFeatured = FORCE_MOCK_FEATURED || featured.length === 0
+  const featuredItems = featured
+    .filter(isRenderableFeatured)
+    .sort((a, b) => getFeaturedSignalStrength(b) - getFeaturedSignalStrength(a))
+    .slice(0, 6)
   const showcaseItems = featuredItems.length > 1 ? [...featuredItems, ...featuredItems] : featuredItems
-  const trendingItems = (trendingDegraded || events.length === 0 ? mockTrending : events).slice(0, 6)
+  const trendingItems = events.slice(0, 6)
   const trustCards = [
     {
       icon: LineChart,
@@ -882,15 +592,17 @@ export const Discovery: React.FC = () => {
                       <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-charcoal/48">
                         {copy.opportunities.eyebrow}
                       </div>
-                      <span className="rounded-full border border-charcoal/10 bg-warm-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-charcoal/58 shadow-sm">
-                        {usingMockFeatured ? copy.opportunities.modeMock : copy.opportunities.modeLive}
-                      </span>
+                      {featuredItems.length > 0 ? (
+                        <span className="rounded-full border border-charcoal/10 bg-warm-white/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-charcoal/58 shadow-sm">
+                          {copy.opportunities.modeLive}
+                        </span>
+                      ) : null}
                     </div>
                     <h2 className="mt-3 max-w-sm font-serif text-[1.7rem] leading-tight text-charcoal md:text-[1.95rem]">
                       {copy.opportunities.title}
                     </h2>
 
-                    {showcaseItems.length > 0 && (
+                    {showcaseItems.length > 0 ? (
                       <div className="mt-5">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-charcoal/44">
@@ -916,6 +628,12 @@ export const Discovery: React.FC = () => {
                             ))}
                           </div>
                         </div>
+                      </div>
+                    ) : (
+                      <div className="workspace-subpanel mt-5 rounded-[28px] px-5 py-8 text-center">
+                        <p className="text-sm font-medium leading-6 text-charcoal/62">
+                          {copy.opportunities.empty}
+                        </p>
                       </div>
                     )}
                   </div>
@@ -984,6 +702,17 @@ export const Discovery: React.FC = () => {
                   {[1, 2, 3, 4, 5, 6].map((i) => (
                     <div key={i} className="premium-card h-72 rounded-[30px] animate-pulse" />
                   ))}
+                </div>
+              ) : trendingItems.length === 0 ? (
+                <div className="premium-card glass-window rounded-[30px] px-6 py-10 text-center">
+                  <p className="text-sm font-medium text-charcoal/62">
+                    {t('discovery.trending.empty')}
+                  </p>
+                  {trendingDegraded && (
+                    <p className="mt-2 text-xs uppercase tracking-[0.22em] text-charcoal/36">
+                      {isZh ? '实时数据暂时不可用' : 'Live data temporarily unavailable'}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">

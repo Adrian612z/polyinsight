@@ -1,6 +1,10 @@
+import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
+import { promisify } from 'util'
 import { fileURLToPath } from 'url'
+
+const execFileAsync = promisify(execFile)
 
 export interface PolymarketEvent {
   slug: string
@@ -26,6 +30,30 @@ interface TrendingCacheState {
   events: PolymarketEvent[]
   fetchedAt: number
   refreshing: boolean
+}
+
+interface RawPolymarketEventRef {
+  slug?: string
+  title?: string
+  image?: string
+  endDate?: string
+}
+
+interface RawPolymarketMarket {
+  slug?: string
+  question?: string
+  image?: string
+  outcomes?: string
+  outcomePrices?: string
+  volume?: number | string
+  volume24hr?: number | string
+  endDate?: string
+  active?: boolean
+  closed?: boolean
+  archived?: boolean
+  acceptingOrders?: boolean
+  enableOrderBook?: boolean
+  events?: RawPolymarketEventRef[]
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -57,6 +85,90 @@ function normalizeEvents(raw: unknown): PolymarketEvent[] {
       markets: Array.isArray(e.markets) ? (e.markets as PolymarketEvent['markets']) : [],
     }
   }).filter((event) => event.slug && event.title)
+}
+
+function toNumber(value: number | string | undefined): number {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') return Number(value || 0)
+  return 0
+}
+
+function isTradableMarket(market: RawPolymarketMarket): boolean {
+  return market.closed !== true
+    && market.archived !== true
+    && market.active !== false
+    && market.acceptingOrders !== false
+    && market.enableOrderBook !== false
+}
+
+function aggregateMarketsToEvents(rawMarkets: RawPolymarketMarket[], limit: number): PolymarketEvent[] {
+  const grouped = new Map<string, PolymarketEvent>()
+
+  for (const market of rawMarkets) {
+    if (!isTradableMarket(market)) continue
+
+    const eventRef = Array.isArray(market.events) ? market.events[0] : undefined
+    const eventSlug = String(eventRef?.slug || market.slug || '').trim()
+    const eventTitle = String(eventRef?.title || market.question || '').trim()
+
+    if (!eventSlug || !eventTitle) continue
+
+    const current = grouped.get(eventSlug) || {
+      slug: eventSlug,
+      title: eventTitle,
+      image: String(eventRef?.image || market.image || ''),
+      volume: 0,
+      volume24hr: 0,
+      endDate: String(eventRef?.endDate || market.endDate || ''),
+      markets: [],
+    }
+
+    current.volume += toNumber(market.volume)
+    current.volume24hr += toNumber(market.volume24hr)
+
+    if (!current.image && market.image) {
+      current.image = String(market.image)
+    }
+
+    if (!current.endDate && market.endDate) {
+      current.endDate = String(market.endDate)
+    }
+
+    current.markets.push({
+      question: String(market.question || eventTitle),
+      outcomePrices: String(market.outcomePrices || '[]'),
+      outcomes: String(market.outcomes || '[]'),
+      volume: toNumber(market.volume),
+    })
+
+    grouped.set(eventSlug, current)
+  }
+
+  return Array.from(grouped.values())
+    .map((event) => ({
+      ...event,
+      markets: [...event.markets].sort((a, b) => b.volume - a.volume),
+    }))
+    .sort((a, b) => b.volume24hr - a.volume24hr)
+    .slice(0, limit)
+}
+
+async function fetchJsonWithCurl(url: string): Promise<unknown> {
+  const { stdout } = await execFileAsync('curl', [
+    '-sS',
+    '--fail',
+    '--location',
+    '--compressed',
+    '--retry', '2',
+    '--retry-all-errors',
+    '--retry-delay', '0',
+    '--retry-max-time', '8',
+    '--connect-timeout', '2',
+    '--max-time', '5',
+    url,
+  ])
+
+  return JSON.parse(stdout)
 }
 
 function loadCacheFromDisk() {
@@ -95,9 +207,21 @@ function saveCacheToDisk(events: PolymarketEvent[], fetchedAt: number) {
 }
 
 async function fetchTrendingEventsFromUpstream(limit = 10): Promise<PolymarketEvent[]> {
-  const url = `https://gamma-api.polymarket.com/events?closed=false&order=volume24hr&ascending=false&limit=${limit}`
+  const marketLimit = Math.min(Math.max(limit * 4, 24), 48)
+  const marketsUrl = `https://gamma-api.polymarket.com/markets?closed=false&order=volume24hr&ascending=false&limit=${marketLimit}`
 
-  const res = await fetch(url, {
+  try {
+    const raw = await fetchJsonWithCurl(marketsUrl)
+    const aggregated = aggregateMarketsToEvents(Array.isArray(raw) ? raw as RawPolymarketMarket[] : [], limit)
+    if (aggregated.length > 0) {
+      return aggregated
+    }
+  } catch (error) {
+    console.error('[Trending] curl markets fetch failed:', error)
+  }
+
+  const fallbackUrl = `https://gamma-api.polymarket.com/events?closed=false&order=volume24hr&ascending=false&limit=${limit}`
+  const res = await fetch(fallbackUrl, {
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   })
 

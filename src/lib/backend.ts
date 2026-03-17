@@ -44,7 +44,7 @@ async function apiRequest(path: string, options: RequestInit = {}) {
 
   if (!res.ok) {
     const error = new Error(data?.error || `Request failed with status ${res.status}`) as Error & { code?: string; status?: number }
-    error.code = data.code
+    error.code = data?.code
     error.status = res.status
     throw error
   }
@@ -118,8 +118,22 @@ export const api = {
     publicRequest(`/trending?limit=${limit}`),
 
   // Wallet
-  getOrCreateWallet: (legacySeed?: string) =>
-    apiRequest('/wallet/create', { method: 'POST', body: JSON.stringify({ legacySeed }) }),
+  getOrCreateWallet: () =>
+    apiRequest('/wallet/create', { method: 'POST' }),
+
+  // Billing
+  getBillingPlans: () => publicRequest('/billing/plans'),
+
+  getBillingOverview: () => apiRequest('/billing/me'),
+
+  createBillingOrder: (planId: 'topup' | 'monthly' | 'unlimited', amount?: number) =>
+    apiRequest('/billing/orders', {
+      method: 'POST',
+      body: JSON.stringify({ planId, amount }),
+    }),
+
+  cancelBillingOrder: (orderId: string) =>
+    apiRequest(`/billing/orders/${orderId}/cancel`, { method: 'POST' }),
 
   saveTransaction: (body: {
     tx_hash: string
@@ -128,6 +142,7 @@ export const api = {
     chain_name: string
     token_symbol: string
     amount: string
+    billing_order_id?: string
   }) => apiRequest('/transactions', { method: 'POST', body: JSON.stringify(body) }),
 
   // Admin

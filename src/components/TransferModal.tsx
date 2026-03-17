@@ -41,6 +41,7 @@ interface TransferModalProps {
   planLabel: string
   planSummary: string
   fixedAmount?: number
+  billingOrderId?: string
   onClose: () => void
 }
 
@@ -60,6 +61,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   planLabel,
   planSummary,
   fixedAmount,
+  billingOrderId,
   onClose,
 }) => {
   const { t } = useTranslation()
@@ -175,6 +177,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           chain_name: selectedChain?.chain_name,
           token_symbol: token.symbol,
           amount: String(parsedAmount),
+          billing_order_id: billingOrderId,
         })
         .catch(() => { /* best-effort, don't block UI */ })
     } catch (err) {

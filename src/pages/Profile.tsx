@@ -113,9 +113,9 @@ export const Profile: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)] items-start">
         {/* Referral Section */}
-        <div className="workspace-frame rounded-[30px] p-6 space-y-4">
+        <div className="workspace-frame rounded-[30px] p-6 space-y-4 xl:sticky xl:top-28">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-terracotta/10 text-terracotta">
               <Users className="w-5 h-5" />
@@ -169,7 +169,7 @@ export const Profile: React.FC = () => {
         </div>
 
         {/* Credit History */}
-        <div className="premium-card rounded-[30px] p-6 space-y-4">
+        <div className="premium-card rounded-[30px] p-6 space-y-4 flex flex-col h-[min(760px,calc(100vh-210px))]">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#8b7bff]/12 text-[#8b7bff]">
               <History className="w-5 h-5" />
@@ -178,17 +178,17 @@ export const Profile: React.FC = () => {
           </div>
 
           {loading ? (
-            <div className="space-y-3">
+            <div className="space-y-3 flex-1">
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="skeleton-surface h-16 rounded-2xl" />
               ))}
             </div>
           ) : creditHistory.length === 0 ? (
-            <div className="workspace-subpanel rounded-[22px] py-10 text-center text-sm text-charcoal/40">
+            <div className="workspace-subpanel rounded-[22px] py-10 text-center text-sm text-charcoal/40 flex-1 flex items-center justify-center">
               {t('profile.creditHistory.empty')}
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
               {creditHistory.map((tx) => (
                 <div key={tx.id} className="workspace-list-item rounded-[22px] px-4 py-3">
                   <div className="flex items-center justify-between gap-4">

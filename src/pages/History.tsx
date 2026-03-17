@@ -5,10 +5,11 @@ import { fetchAndCacheHistoryPage, getCachedHistoryPage, setCachedHistoryPage } 
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { format } from 'date-fns'
-import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock, Trash2 } from 'lucide-react'
+import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock, Trash2, X } from 'lucide-react'
 import { DecisionCard, parseResult, riskConfig } from '../components/DecisionCard'
 import { SkeletonList } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
+import { formatPolymarketSlugLabel } from '../lib/polymarket'
 
 interface AnalysisRecord {
   id: string
@@ -40,6 +41,8 @@ export const History: React.FC = () => {
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
   const pageLabel = t('history.records', { count: totalCount })
+  const desktopPanelHeight = 'lg:h-[min(820px,calc(100vh-185px))]'
+  const mobileListHeight = 'h-[min(760px,calc(100vh-205px))]'
 
   const deleteRecord = async (record: AnalysisRecord, e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -118,9 +121,10 @@ export const History: React.FC = () => {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)] min-h-[calc(100vh-160px)] animate-fade-in-up">
+    <div className="animate-fade-in-up">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)] lg:h-[calc(100vh-160px)]">
       {/* List Column - Minimalist */}
-      <div className="workspace-frame rounded-[30px] overflow-hidden flex flex-col min-h-[520px]">
+      <div className={`workspace-frame rounded-[30px] overflow-hidden flex flex-col min-h-0 ${mobileListHeight} ${desktopPanelHeight}`}>
         <div className="p-5 border-b border-charcoal/5">
           <div className="section-label mb-2">History</div>
           <h2 className="font-serif text-2xl text-charcoal flex items-center gap-3">
@@ -153,7 +157,7 @@ export const History: React.FC = () => {
                   >
                     <div className="flex justify-between items-start gap-4 mb-3">
                       <p className={`text-sm font-semibold truncate pr-4 ${isSelected ? 'text-charcoal' : 'text-charcoal/82'}`} title={record.event_url}>
-                        {record.event_url.replace('https://polymarket.com/event/', '')}
+                        {formatPolymarketSlugLabel(record.event_url, 80)}
                       </p>
                       <span className={`shrink-0 ${record.status === 'completed' ? 'tone-safe-badge' : record.status === 'pending' ? 'tone-caution-badge' : 'tone-danger-badge'}`}>
                         {status.label}
@@ -217,13 +221,13 @@ export const History: React.FC = () => {
       </div>
 
       {/* Detail Column - Paper-like */}
-      <div className="premium-card rounded-[30px] overflow-hidden flex flex-col min-h-[520px]">
+      <div className={`premium-card rounded-[30px] overflow-hidden min-h-0 hidden lg:flex flex-col ${desktopPanelHeight}`}>
         {selectedRecord ? (
           <>
             <div className="p-6 border-b border-charcoal/5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="section-label mb-2">{t('history.report.title')}</div>
-                <h3 className="font-serif text-2xl text-charcoal mb-1">{selectedRecord.event_url.replace('https://polymarket.com/event/', '')}</h3>
+                <h3 className="font-serif text-2xl text-charcoal mb-1">{formatPolymarketSlugLabel(selectedRecord.event_url, 120)}</h3>
                 <p className="text-xs text-charcoal/40 font-mono">
                   {t('history.report.generated', { date: format(new Date(selectedRecord.created_at), 'yyyy-MM-dd HH:mm') })}
                 </p>
@@ -269,6 +273,61 @@ export const History: React.FC = () => {
           </div>
         )}
       </div>
+      </div>
+
+      {selectedRecord && (
+        <div className="lg:hidden fixed inset-0 z-40 bg-charcoal/28 backdrop-blur-sm p-4">
+          <div className="premium-card rounded-[30px] overflow-hidden flex flex-col h-[calc(100vh-2rem)]">
+            <div className="p-5 border-b border-charcoal/5 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="section-label mb-2">{t('history.report.title')}</div>
+                <h3 className="font-serif text-xl text-charcoal leading-tight break-words">
+                  {formatPolymarketSlugLabel(selectedRecord.event_url, 100)}
+                </h3>
+                <p className="text-xs text-charcoal/40 font-mono mt-1">
+                  {t('history.report.generated', { date: format(new Date(selectedRecord.created_at), 'yyyy-MM-dd HH:mm') })}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedRecord(null)}
+                className="theme-surface-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-charcoal/70"
+                aria-label={t('common.close', 'Close')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 flex items-center gap-2 border-b border-charcoal/5">
+              <button
+                onClick={() => deleteRecord(selectedRecord)}
+                disabled={deletingIds.has(selectedRecord.id)}
+                className="theme-surface-button inline-flex items-center rounded-full px-3.5 py-2 text-xs font-medium transition-colors disabled:opacity-50 hover:text-red-500"
+              >
+                <Trash2 size={12} className="mr-1.5" /> {t('history.report.delete')}
+              </button>
+              <a
+                href={selectedRecord.event_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="theme-contrast-button inline-flex items-center rounded-full px-3.5 py-2 text-xs font-medium transition-colors"
+              >
+                {t('history.report.viewSource')} <ExternalLink size={12} className="ml-1.5" />
+              </a>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 min-h-0">
+              {selectedRecord.analysis_result ? (
+                <DecisionCard result={selectedRecord.analysis_result} eventUrl={selectedRecord.event_url} />
+              ) : (
+                <div className="workspace-subpanel rounded-[24px] flex flex-col items-center justify-center h-full text-charcoal/30 py-16">
+                  <Clock className="w-12 h-12 mb-3 opacity-20" />
+                  <p className="text-sm font-serif italic">{t('history.report.pendingText')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

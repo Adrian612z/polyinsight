@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth.js'
-import { supabase } from '../services/supabase.js'
 import { createWalletFromSeed, getWalletBySeed } from '../services/wallet.js'
 
 const router = Router()
@@ -14,23 +13,6 @@ router.post('/create', authMiddleware, async (req: Request, res: Response) => {
     if (currentWallet) {
       res.json({ address: currentWallet.address })
       return
-    }
-
-    const legacySeed = typeof req.body?.legacySeed === 'string' ? req.body.legacySeed.trim() : ''
-    if (legacySeed) {
-      const { data: user } = await supabase
-        .from('users')
-        .select('display_name')
-        .eq('id', userId)
-        .single()
-
-      if (user?.display_name && user.display_name === legacySeed) {
-        const legacyWallet = await getWalletBySeed(legacySeed)
-        if (legacyWallet) {
-          res.json({ address: legacyWallet.address })
-          return
-        }
-      }
     }
 
     const wallet = await createWalletFromSeed(walletLookupKey(userId))

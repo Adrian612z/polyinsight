@@ -19,7 +19,6 @@ const TransferModal = lazy(async () => {
 interface AddCreditsModalProps {
   onClose: () => void
   walletAddress: string
-  username?: string
 }
 
 const SUPPORTED_CHAINS = 'Ethereum • Polygon • Arbitrum • BNB'
@@ -47,7 +46,6 @@ function shortAddress(addr: string): string {
 export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
   onClose,
   walletAddress: defaultWalletAddress,
-  username,
 }) => {
   const { t } = useTranslation()
   const [step, setStep] = useState<Step>('plan')
@@ -59,6 +57,9 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
   const [depositAddress, setDepositAddress] = useState<string>('')
   const [loadingAddress, setLoadingAddress] = useState(false)
   const [selectedPlanId, setSelectedPlanId] = useState<CreditPlanId>('topup')
+  const [billingOrderId, setBillingOrderId] = useState<string | null>(null)
+  const [creatingOrder, setCreatingOrder] = useState(false)
+  const [orderError, setOrderError] = useState<string | null>(null)
 
   const plans: CreditPlan[] = [
     {
@@ -92,10 +93,15 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
 
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) ?? plans[0]
 
+  useEffect(() => {
+    setBillingOrderId(null)
+    setOrderError(null)
+  }, [selectedPlanId])
+
   // Fetch or create the authenticated user's deposit address.
   useEffect(() => {
     setLoadingAddress(true)
-    api.getOrCreateWallet(username)
+    api.getOrCreateWallet()
       .then((res) => {
         setDepositAddress(res.address)
       })
@@ -103,7 +109,7 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
         setDepositAddress(defaultWalletAddress)
       })
       .finally(() => setLoadingAddress(false))
-  }, [defaultWalletAddress, username])
+  }, [defaultWalletAddress])
 
   const walletAddress = depositAddress || defaultWalletAddress
   const qrData = walletAddress
@@ -116,6 +122,27 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
+  }
+
+  const handleContinueToPayment = async () => {
+    setOrderError(null)
+
+    if (!selectedPlan.fixedAmount) {
+      setStep('payment')
+      return
+    }
+
+    setCreatingOrder(true)
+    try {
+      const res = await api.createBillingOrder(selectedPlan.id)
+      setBillingOrderId(res.order.id)
+      setStep('payment')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('error.message')
+      setOrderError(message)
+    } finally {
+      setCreatingOrder(false)
+    }
   }
 
   const tabs: { id: Tab; icon: React.ReactNode; label: string; sub: string }[] = [
@@ -213,12 +240,18 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
 
               <div className="mt-6 flex justify-end">
                 <button
-                  onClick={() => setStep('payment')}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-700"
+                  onClick={() => void handleContinueToPayment()}
+                  disabled={creatingOrder}
+                  className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                 >
-                  {t('addCredits.actions.continueToPayment')}
+                  {creatingOrder ? t('addCredits.loading') : t('addCredits.actions.continueToPayment')}
                 </button>
               </div>
+              {orderError && (
+                <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {orderError}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex min-h-[430px]">
@@ -385,6 +418,7 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
             planLabel={selectedPlan.name}
             planSummary={selectedPlan.summary}
             fixedAmount={selectedPlan.fixedAmount}
+            billingOrderId={billingOrderId || undefined}
             onClose={() => setShowTransferModal(false)}
           />
         </Suspense>
