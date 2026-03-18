@@ -6,6 +6,7 @@ import { deductCredits, refundAnalysisCreditsIfNeeded } from '../services/credit
 import { config } from '../config.js'
 import { extractPolymarketSlug, isValidPolymarketUrl, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
 import { getActiveSubscription } from '../services/billing.js'
+import { cancelAnalysisJobByRecord, enqueueAnalysisJob } from '../services/analysisJobs.js'
 
 const router = Router()
 
@@ -46,6 +47,23 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
     const validLang = lang === 'zh' ? 'zh' : 'en'
     const activeSubscription = await getActiveSubscription(userId)
     const hasUnlimitedAccess = Boolean(activeSubscription?.unlimited)
+    const { count: activeJobsCount, error: activeJobsError } = await supabase
+      .from('analysis_jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .in('status', ['queued', 'running'])
+
+    if (activeJobsError) throw activeJobsError
+
+    if ((activeJobsCount || 0) >= config.analysisMaxActiveJobsPerUser) {
+      res.status(429).json({
+        error: `Too many active analyses. You can have at most ${config.analysisMaxActiveJobsPerUser} queued or running analyses at once.`,
+        code: 'TOO_MANY_ACTIVE_ANALYSES',
+        active_count: activeJobsCount || 0,
+        limit: config.analysisMaxActiveJobsPerUser,
+      })
+      return
+    }
 
     // 1. Create analysis record
     const { data: record, error: dbError } = await supabase
@@ -91,51 +109,32 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
       }
     }
 
-    // 3. Trigger n8n webhook asynchronously; stale/failed records are refunded later.
-    const webhookUrl = validLang === 'zh' ? config.n8nWebhookUrlZh : config.n8nWebhookUrl
-    const failAnalysisAndRefund = async (reason: string) => {
-      try {
-        await supabase
-          .from('analysis_records')
-          .update({
-            status: 'failed',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', record.id)
-          .eq('user_id', userId)
-          .eq('status', 'pending')
-
+    try {
+      await enqueueAnalysisJob({
+        analysisRecordId: record.id,
+        userId,
+        lang: validLang,
+        payload: {
+          url: canonicalUrl,
+          originalUrl: url,
+          slug,
+          userId,
+          recordId: record.id,
+          lang: validLang,
+        },
+      })
+    } catch (queueErr) {
+      console.error('Failed to enqueue analysis job:', queueErr)
+      await supabase.from('analysis_records').delete().eq('id', record.id)
+      if (!hasUnlimitedAccess) {
         await refundAnalysisCreditsIfNeeded(
           userId,
           record.id,
-          `Refund for analysis that failed to start: ${canonicalUrl.slice(0, 60)}...`
+          `Refund for analysis that failed to queue: ${canonicalUrl.slice(0, 60)}...`
         )
-      } catch (refundErr) {
-        console.error('Failed to mark analysis as failed/refunded:', refundErr)
       }
-
-      console.error('n8n webhook error:', reason)
+      throw queueErr
     }
-
-    void fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url: canonicalUrl,
-          original_url: url,
-          slug,
-          user_id: userId,
-          record_id: record.id,
-        }),
-      })
-      .then(async (response) => {
-        if (!response.ok) {
-          await failAnalysisAndRefund(`Webhook responded with status ${response.status}`)
-        }
-      })
-      .catch(async (err) => {
-        await failAnalysisAndRefund(err instanceof Error ? err.message : 'Unknown webhook error')
-      })
 
     res.json({
       record_id: record.id,
@@ -249,6 +248,8 @@ router.post('/:id/cancel', authMiddleware, async (req: Request, res: Response) =
       req.params.id,
       `Refund for cancelled analysis: ${record.event_url.slice(0, 60)}...`
     )
+
+    await cancelAnalysisJobByRecord(req.params.id)
 
     res.json({ success: true, refunded: refund.refunded, balance: refund.balance })
   } catch (err) {

@@ -3,11 +3,18 @@ import { useTheme } from '../lib/theme'
 
 export const AnimatedBackground: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { resolvedTheme } = useTheme()
+  const gridMask = {
+    WebkitMaskImage:
+      'linear-gradient(to bottom, transparent 0, transparent 12rem, rgba(0,0,0,0.82) 20rem, rgba(0,0,0,1) 26rem)',
+    maskImage:
+      'linear-gradient(to bottom, transparent 0, transparent 12rem, rgba(0,0,0,0.82) 20rem, rgba(0,0,0,1) 26rem)',
+  } as const
 
   return (
     <div className="relative min-h-screen overflow-clip bg-warm-white text-charcoal">
       <div className="pointer-events-none absolute inset-0">
         <div
+          style={gridMask}
           className={
             resolvedTheme === 'dark'
               ? 'absolute inset-0 bg-[linear-gradient(rgba(112,128,158,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(112,128,158,0.08)_1px,transparent_1px)] bg-[size:132px_132px] opacity-40'
@@ -46,7 +53,6 @@ export const AnimatedBackground: React.FC<{ children: React.ReactNode }> = ({ ch
         <div className="absolute left-[12%] top-[18%] h-56 w-56 rounded-full border border-white/32 bg-white/14 blur-2xl float-gentle" />
         <div className="absolute right-[18%] top-[36%] h-40 w-40 rounded-full border border-white/26 bg-white/10 blur-2xl float-gentle-delay" />
         <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-white/62 to-transparent" />
-        <div className="absolute left-0 right-0 top-[14%] h-px bg-gradient-to-r from-transparent via-white/60 to-transparent" />
       </div>
 
       <div className="relative z-10">

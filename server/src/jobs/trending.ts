@@ -1,8 +1,8 @@
 import cron from 'node-cron'
 import { supabase } from '../services/supabase.js'
 import { fetchTrendingEvents } from '../services/polymarket.js'
-import { config } from '../config.js'
 import { extractPolymarketSlug } from '../utils/polymarket.js'
+import { enqueueAnalysisJob } from '../services/analysisJobs.js'
 import {
   calculateMispricingScore,
   getFeaturedSignalStrength,
@@ -86,21 +86,23 @@ async function discoverAndAnalyze() {
       continue
     }
 
-    // Trigger n8n webhook
     try {
-      await fetch(config.n8nWebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await enqueueAnalysisJob({
+        analysisRecordId: record.id,
+        userId: 'system:auto-discovery',
+        lang: 'en',
+        payload: {
           url: polymarketUrl,
+          originalUrl: polymarketUrl,
           slug: event.slug,
-          user_id: 'system:auto-discovery',
-          record_id: record.id,
-        }),
+          userId: 'system:auto-discovery',
+          recordId: record.id,
+          lang: 'en',
+        },
       })
-      console.log(`[Trending] Triggered analysis for: ${event.slug}`)
+      console.log(`[Trending] Enqueued analysis for: ${event.slug}`)
     } catch (err) {
-      console.error(`[Trending] Webhook failed for ${event.slug}:`, err)
+      console.error(`[Trending] Queue failed for ${event.slug}:`, err)
     }
 
     analyzed++

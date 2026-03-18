@@ -19,6 +19,7 @@ import { startStaleAnalysisJob } from './jobs/staleAnalysis.js'
 import { startTrendingCache } from './services/polymarket.js'
 import { startTransactionVerificationJob } from './services/transaction.js'
 import { startTrendingJob } from './jobs/trending.js'
+import { startAnalysisWorker } from './services/analysisWorker.js'
 
 const app = express()
 
@@ -83,4 +84,5 @@ app.listen(config.port, () => {
   startTrendingJob()
   startBillingMaintenanceJob()
   startTransactionVerificationJob()
+  startAnalysisWorker()
 })
