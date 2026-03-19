@@ -28,8 +28,10 @@ dist-ssr
 .env.local
 .env.production
 .env.staging
+!.env.example
 server/.env
 server/.env.*
+!server/.env.example
 server/.cache/
 
 # Security
