@@ -22,10 +22,6 @@ const Layout = lazyNamed(() => import('./components/Layout'), 'Layout')
 const Analyze = lazyNamed(() => import('./pages/Analyze'), 'Analyze')
 const History = lazyNamed(() => import('./pages/History'), 'History')
 const Profile = lazyNamed(() => import('./pages/Profile'), 'Profile')
-const AdminLayout = lazyNamed(() => import('./pages/admin/AdminLayout'), 'AdminLayout')
-const AdminDashboard = lazyNamed(() => import('./pages/admin/Dashboard'), 'AdminDashboard')
-const AdminUsers = lazyNamed(() => import('./pages/admin/Users'), 'AdminUsers')
-const AdminAnalyses = lazyNamed(() => import('./pages/admin/Analyses'), 'AdminAnalyses')
 
 function App() {
   const { ready, authenticated, user, getAccessToken } = usePrivy()
@@ -58,7 +54,7 @@ function App() {
       if (!registeredRef.current) {
         registeredRef.current = true
         const referralCode = localStorage.getItem('polyinsight_ref') || undefined
-        getAccessToken().then((token) => {
+            getAccessToken().then((token) => {
           if (token) setPrivyToken(token)
           return api.register({
             email: user.email?.address || user.google?.email || undefined,
@@ -70,7 +66,6 @@ function App() {
             setUserInfo({
               creditBalance: res.user.credit_balance,
               referralCode: res.user.referral_code,
-              role: res.user.role,
             })
             void primeWorkspaceCaches(user.id)
           }
@@ -115,15 +110,8 @@ function App() {
                 path="/profile"
                 element={authenticated ? <RouteSuspense><Profile /></RouteSuspense> : <Navigate to="/" />}
               />
-              <Route
-                path="/admin"
-                element={authenticated ? <RouteSuspense><AdminLayout /></RouteSuspense> : <Navigate to="/" />}
-              >
-                <Route index element={<RouteSuspense><AdminDashboard /></RouteSuspense>} />
-                <Route path="users" element={<RouteSuspense><AdminUsers /></RouteSuspense>} />
-                <Route path="analyses" element={<RouteSuspense><AdminAnalyses /></RouteSuspense>} />
-              </Route>
             </Route>
+            <Route path="/admin/*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </ToastProvider>

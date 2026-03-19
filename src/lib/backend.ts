@@ -144,14 +144,4 @@ export const api = {
     amount: string
     billing_order_id?: string
   }) => apiRequest('/transactions', { method: 'POST', body: JSON.stringify(body) }),
-
-  // Admin
-  adminDashboard: () => apiRequest('/admin/dashboard'),
-  adminUsers: (page = 1) => apiRequest(`/admin/users?page=${page}`),
-  adminGrantCredits: (userId: string, amount: number, description?: string) =>
-    apiRequest('/admin/credits/grant', {
-      method: 'POST',
-      body: JSON.stringify({ userId, amount, description }),
-    }),
-  adminAnalyses: (page = 1) => apiRequest(`/admin/analyses?page=${page}`),
 }

@@ -2,7 +2,6 @@
   "layout.nav.discover": "发现",
   "layout.nav.analyze": "分析",
   "layout.nav.history": "历史",
-  "layout.nav.admin": "管理",
   "layout.nav.signOut": "退出",
   "layout.footer": "PolyInsight. 为好奇之心而生的分析。",
 
@@ -194,26 +193,5 @@
   "store.step.info": "事件信息提取",
   "store.step.probability": "概率分析",
   "store.step.risk": "风控审计",
-  "store.step.report": "报告撰写",
-
-  "admin.dashboard.title": "管理面板",
-  "admin.dashboard.totalUsers": "总用户数",
-  "admin.dashboard.newToday": "今日新增",
-  "admin.dashboard.totalAnalyses": "总分析数",
-  "admin.dashboard.creditsGranted": "已发放积分",
-  "admin.nav.dashboard": "面板",
-  "admin.nav.users": "用户",
-  "admin.nav.analyses": "分析",
-  "admin.users.title": "用户管理",
-  "admin.users.grant": "发放",
-  "admin.users.noUsers": "暂无用户",
-  "admin.users.grantCredits": "发放积分",
-  "admin.users.to": "对象：",
-  "admin.users.amount": "金额（积分）",
-  "admin.users.description": "说明（可选）",
-  "admin.users.cancel": "取消",
-  "admin.users.confirm": "确认",
-  "admin.users.granting": "发放中...",
-  "admin.analyses.title": "分析记录",
-  "admin.analyses.noRecords": "暂无分析记录"
+  "store.step.report": "报告撰写"
 }

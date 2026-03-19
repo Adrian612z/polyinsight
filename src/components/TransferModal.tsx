@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { X, ArrowRightLeft, Loader, CheckCircle, ChevronDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../lib/backend'
+import { useAuthStore } from '../store/authStore'
 
 interface ChainConfig {
   id: string
@@ -74,7 +75,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [sending, setSending] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const minimumAmount = fixedAmount ?? 1
+  const minimumAmount = fixedAmount ?? 0.01
+  const currentCreditBalance = useAuthStore((s) => s.creditBalance)
+  const setCreditBalance = useAuthStore((s) => s.setCreditBalance)
 
   useEffect(() => {
     fetch('/api/chains')
@@ -169,16 +172,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
       setTxHash(txHash)
 
-      // Save transaction to backend
+      // Save transaction to backend and best-effort refresh the visible credit balance.
       api.saveTransaction({
-          tx_hash: txHash,
-          from_address: fromAddress,
-          to_address: toAddress,
-          chain_name: selectedChain?.chain_name,
-          token_symbol: token.symbol,
-          amount: String(parsedAmount),
-          billing_order_id: billingOrderId,
-        })
+        tx_hash: txHash,
+        from_address: fromAddress,
+        to_address: toAddress,
+        chain_name: selectedChain?.chain_name,
+        token_symbol: token.symbol,
+        amount: String(parsedAmount),
+        billing_order_id: billingOrderId,
+      })
+        .then(() => refreshVisibleBalance(currentCreditBalance, setCreditBalance))
         .catch(() => { /* best-effort, don't block UI */ })
     } catch (err) {
       console.error('Transfer error:', err)
@@ -435,4 +439,28 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       </div>
     </div>
   )
+}
+
+async function refreshVisibleBalance(
+  previousBalance: number,
+  setCreditBalance: (balance: number) => void,
+) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await sleep(2000)
+
+    try {
+      const res = await api.getMe()
+      const nextBalance = res?.user?.credit_balance
+      if (typeof nextBalance === 'number' && nextBalance !== previousBalance) {
+        setCreditBalance(nextBalance)
+        return
+      }
+    } catch {
+      // Ignore transient polling failures. The user can still refresh manually.
+    }
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }

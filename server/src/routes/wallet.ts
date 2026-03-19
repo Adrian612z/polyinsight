@@ -1,21 +1,20 @@
 import { Router, Request, Response } from 'express'
 import { authMiddleware } from '../middleware/auth.js'
-import { createWalletFromSeed, getWalletBySeed } from '../services/wallet.js'
+import { createWalletForUser, getWalletByUserId } from '../services/wallet.js'
 
 const router = Router()
-const walletLookupKey = (userId: string) => `user:${userId}`
 
 // POST /api/wallet/create - Create or fetch the authenticated user's wallet
 router.post('/create', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
-    const currentWallet = await getWalletBySeed(walletLookupKey(userId))
+    const currentWallet = await getWalletByUserId(userId)
     if (currentWallet) {
       res.json({ address: currentWallet.address })
       return
     }
 
-    const wallet = await createWalletFromSeed(walletLookupKey(userId))
+    const wallet = await createWalletForUser(userId)
     res.json({
       address: wallet.address,
     })
@@ -28,7 +27,7 @@ router.post('/create', authMiddleware, async (req: Request, res: Response) => {
 // GET /api/wallet/address - Query the authenticated user's wallet address
 router.get('/address', authMiddleware, async (_req: Request, res: Response) => {
   try {
-    const wallet = await createWalletFromSeed(walletLookupKey(_req.userId!))
+    const wallet = await createWalletForUser(_req.userId!)
     res.json({ address: wallet.address })
   } catch (err) {
     console.error('Get wallet error:', err)

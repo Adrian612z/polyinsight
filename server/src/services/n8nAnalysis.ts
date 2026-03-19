@@ -17,6 +17,9 @@ export async function runN8nAnalysisPipeline(job: AnalysisJobRecord): Promise<st
 
 export async function triggerN8nWebhook(job: Pick<AnalysisJobRecord, 'lang' | 'payload'>): Promise<void> {
   const webhookUrl = job.lang === 'zh' ? config.n8nWebhookUrlZh : config.n8nWebhookUrl
+  if (!webhookUrl) {
+    throw new Error(`Missing n8n webhook configuration for lang=${job.lang}`)
+  }
   const response = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

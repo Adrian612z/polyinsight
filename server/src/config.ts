@@ -40,8 +40,8 @@ export const config = {
   privyAppId: requireEnv('PRIVY_APP_ID'),
   privyAppSecret: requireEnv('PRIVY_APP_SECRET'),
 
-  n8nWebhookUrl: requireEnv('N8N_WEBHOOK_URL'),
-  n8nWebhookUrlZh: requireEnv('N8N_WEBHOOK_URL_ZH'),
+  n8nWebhookUrl: optionalEnv('N8N_WEBHOOK_URL'),
+  n8nWebhookUrlZh: optionalEnv('N8N_WEBHOOK_URL_ZH'),
 
   // Credit cost per analysis (in centicredits: 100 = 1.00 credit)
   analysisCost: 100,

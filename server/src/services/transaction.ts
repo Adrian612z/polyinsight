@@ -2,7 +2,7 @@ import { ethers } from 'ethers'
 import { approveBillingOrder, getBillingPlan, rejectBillingOrder } from './billing.js'
 import { grantCredits } from './credit.js'
 import { supabase } from './supabase.js'
-import { createWalletFromSeed } from './wallet.js'
+import { createWalletForUser } from './wallet.js'
 
 const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)')
 const STABLECOIN_DECIMALS = 6
@@ -46,7 +46,7 @@ async function getChainConfig(chainName: string): Promise<ChainConfig | null> {
 }
 
 async function getUserWalletAddress(userId: string): Promise<string> {
-  const wallet = await createWalletFromSeed(`user:${userId}`)
+  const wallet = await createWalletForUser(userId)
   return normalizeAddress(wallet.address)
 }
 
@@ -120,7 +120,13 @@ function isRetryablePendingTransaction(tx: {
 }): boolean {
   if (tx.status !== 'pending_review') return false
 
-  if (tx.review_note !== RETRYABLE_PENDING_NOTE) {
+  const note = tx.review_note || ''
+  const retryableByNote =
+    note === '' ||
+    note === RETRYABLE_PENDING_NOTE ||
+    note.startsWith('RPC verification failed')
+
+  if (!retryableByNote) {
     return false
   }
 
@@ -169,7 +175,19 @@ export async function verifyAndProcessTransaction(txHash: string): Promise<void>
   }
 
   const provider = new ethers.JsonRpcProvider(chainConfig.rpc_url)
-  const receipt = await provider.getTransactionReceipt(txHash)
+  let receipt: ethers.TransactionReceipt | null = null
+
+  try {
+    receipt = await provider.getTransactionReceipt(txHash)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await setTransactionReviewState({
+      txHash,
+      status: 'pending_review',
+      note: `RPC verification failed for ${tx.chain_name}: ${message.slice(0, 160)}`,
+    })
+    return
+  }
 
   if (!receipt) {
     await setTransactionReviewState({
@@ -219,6 +237,19 @@ export async function verifyAndProcessTransaction(txHash: string): Promise<void>
         txHash,
         status: 'pending_review',
         note: 'Billing order missing during automatic verification',
+        tokenSymbol: matchedTransfer.tokenSymbol,
+        amountTokens: matchedTransfer.amountTokens,
+        toAddress: matchedTransfer.to,
+        fromAddress: matchedTransfer.from,
+      })
+      return
+    }
+
+    if (order.tx_hash && order.tx_hash !== txHash) {
+      await setTransactionReviewState({
+        txHash,
+        status: 'pending_review',
+        note: 'Billing order is now linked to a different transaction; skipped automatic approval',
         tokenSymbol: matchedTransfer.tokenSymbol,
         amountTokens: matchedTransfer.amountTokens,
         toAddress: matchedTransfer.to,

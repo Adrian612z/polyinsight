@@ -1,20 +1,18 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-import { PrivyClient } from '@privy-io/server-auth'
 import { supabase } from '../services/supabase.js'
 import { config } from '../config.js'
 import { grantCredits } from '../services/credit.js'
 import { approveBillingOrder, rejectBillingOrder } from '../services/billing.js'
 
 const router = Router()
-const privy = new PrivyClient(config.privyAppId, config.privyAppSecret)
 
 // ─── Admin Login (no auth required) ────────────────────────────────
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email and password required' })
+    if (!password) {
+      res.status(400).json({ error: 'Password required' })
       return
     }
 
@@ -23,14 +21,35 @@ router.post('/login', async (req: Request, res: Response) => {
       return
     }
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, email, display_name, role')
-      .eq('email', email)
-      .eq('role', 'admin')
-      .single()
+    const normalizedEmail = typeof email === 'string' ? email.trim() : ''
+    let user: { id: string; email: string | null; display_name: string | null; role: string } | null = null
 
-    if (error || !user) {
+    if (normalizedEmail) {
+      const { data: matchedUser, error } = await supabase
+        .from('users')
+        .select('id, email, display_name, role')
+        .eq('email', normalizedEmail)
+        .eq('role', 'admin')
+        .maybeSingle()
+
+      if (error) throw error
+      user = matchedUser
+    }
+
+    if (!user) {
+      const { data: adminUsers, error } = await supabase
+        .from('users')
+        .select('id, email, display_name, role')
+        .eq('role', 'admin')
+
+      if (error) throw error
+
+      if ((adminUsers || []).length === 1) {
+        user = adminUsers![0]
+      }
+    }
+
+    if (!user) {
       res.status(401).json({ error: 'Invalid credentials' })
       return
     }
@@ -48,35 +67,31 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 })
 
-// ─── Combined Admin Auth Middleware ────────────────────────────────
+// ─── Admin JWT Auth Middleware ─────────────────────────────────────
 async function adminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization || ''
 
-  // Admin JWT
   if (authHeader.startsWith('Admin ')) {
     try {
       const decoded = jwt.verify(authHeader.slice(6), config.adminJwtSecret) as { userId: string; role: string }
       if (decoded.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return }
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', decoded.userId)
+        .maybeSingle()
+
+      if (error) throw error
+      if (user?.role !== 'admin') {
+        res.status(403).json({ error: 'Forbidden' })
+        return
+      }
+
       req.userId = decoded.userId
       next()
       return
     } catch {
       res.status(401).json({ error: 'Invalid or expired token' })
-      return
-    }
-  }
-
-  // Privy Bearer token (for main frontend admin pages)
-  if (authHeader.startsWith('Bearer ')) {
-    try {
-      const claims = await privy.verifyAuthToken(authHeader.slice(7))
-      req.userId = claims.userId
-      const { data: user } = await supabase.from('users').select('role').eq('id', req.userId).single()
-      if (user?.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return }
-      next()
-      return
-    } catch {
-      res.status(401).json({ error: 'Session expired' })
       return
     }
   }
@@ -248,7 +263,7 @@ router.get('/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }, { data: referrer }] = await Promise.all([
+    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }] = await Promise.all([
       supabase.from('users').select('*').eq('id', id).single(),
       supabase.from('analysis_records')
         .select('id, event_url, status, credits_charged, created_at')
@@ -265,8 +280,6 @@ router.get('/users/:id', async (req: Request, res: Response) => {
         .select('id, email, display_name, credit_balance, created_at')
         .eq('referred_by', id)
         .order('created_at', { ascending: false }),
-      // Placeholder - will resolve after getting user
-      supabase.from('users').select('id, email, display_name').eq('id', '__placeholder__'),
     ])
 
     if (!user) {
@@ -563,6 +576,10 @@ router.post('/billing/orders/:id/reject', async (req: Request, res: Response) =>
       }
       if (err.message === 'ORDER_ALREADY_REJECTED') {
         res.status(409).json({ error: 'Billing order already rejected' })
+        return
+      }
+      if (err.message === 'ORDER_NOT_REJECTABLE') {
+        res.status(409).json({ error: 'Billing order cannot be rejected' })
         return
       }
     }

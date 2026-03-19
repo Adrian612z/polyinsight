@@ -2,7 +2,6 @@
   "layout.nav.discover": "Discover",
   "layout.nav.analyze": "Analyze",
   "layout.nav.history": "History",
-  "layout.nav.admin": "Admin",
   "layout.nav.signOut": "Sign Out",
   "layout.footer": "PolyInsight. Analysis for the curious mind.",
 
@@ -194,26 +193,5 @@
   "store.step.info": "Event Info Extraction",
   "store.step.probability": "Probability Analysis",
   "store.step.risk": "Risk Control Audit",
-  "store.step.report": "Report Writer",
-
-  "admin.dashboard.title": "Admin Dashboard",
-  "admin.dashboard.totalUsers": "Total Users",
-  "admin.dashboard.newToday": "New Today",
-  "admin.dashboard.totalAnalyses": "Total Analyses",
-  "admin.dashboard.creditsGranted": "Credits Granted",
-  "admin.nav.dashboard": "Dashboard",
-  "admin.nav.users": "Users",
-  "admin.nav.analyses": "Analyses",
-  "admin.users.title": "User Management",
-  "admin.users.grant": "Grant",
-  "admin.users.noUsers": "No users found",
-  "admin.users.grantCredits": "Grant Credits",
-  "admin.users.to": "To:",
-  "admin.users.amount": "Amount (credits)",
-  "admin.users.description": "Description (optional)",
-  "admin.users.cancel": "Cancel",
-  "admin.users.confirm": "Confirm",
-  "admin.users.granting": "Granting...",
-  "admin.analyses.title": "Analysis Records",
-  "admin.analyses.noRecords": "No analyses found"
+  "store.step.report": "Report Writer"
 }

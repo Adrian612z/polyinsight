@@ -48,6 +48,7 @@ interface BillingOrderRow {
   expected_credits: number
   tx_hash?: string | null
   token_symbol?: string | null
+  submitted_at?: string | null
   reviewed_by?: string | null
   expires_at?: string | null
 }
@@ -61,6 +62,18 @@ interface UserSubscriptionRow {
   unlimited: boolean
   starts_at: string
   ends_at: string
+}
+
+interface AtomicBillingReviewResult {
+  order: BillingOrderRow
+  subscription?: UserSubscriptionRow | null
+}
+
+export interface BillingTransactionRow {
+  id?: string
+  tx_hash?: string | null
+  token_symbol?: string | null
+  created_at?: string | null
 }
 
 function roundTokenAmount(value: number): number {
@@ -226,9 +239,12 @@ export async function getBillingOrderForUser(userId: string, orderId: string) {
 
   if (txErr) throw txErr
 
+  const hydratedOrder = hydrateBillingOrderSnapshot(order as BillingOrderRow, (transactions || []) as BillingTransactionRow[])
+
   return {
-    order,
+    order: hydratedOrder,
     transactions: transactions || [],
+    latestTransaction: selectLatestBillingOrderTransaction((transactions || []) as BillingTransactionRow[]),
   }
 }
 
@@ -281,16 +297,14 @@ export async function cancelBillingOrder(userId: string, orderId: string) {
 
   if (updateErr) throw updateErr
 
-  if (order.tx_hash) {
-    await supabase
-      .from('transactions')
-      .update({
-        status: 'rejected',
-        review_note: 'Order cancelled by user',
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('tx_hash', order.tx_hash)
-  }
+  await supabase
+    .from('transactions')
+    .update({
+      status: 'rejected',
+      review_note: 'Order cancelled by user',
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq('billing_order_id', orderId)
 
   return updated
 }
@@ -310,7 +324,7 @@ export async function releaseBillingOrderTransaction(
   if (error) throw error
   if (!order) return null
 
-  if (order.tx_hash !== txHash) {
+  if (order.tx_hash && order.tx_hash !== txHash) {
     return order
   }
 
@@ -332,8 +346,49 @@ export async function releaseBillingOrderTransaction(
   return updatedOrder
 }
 
+export function selectLatestBillingOrderTransaction<T extends BillingTransactionRow>(transactions: T[]): T | null {
+  if (transactions.length === 0) return null
+
+  return [...transactions].sort((a, b) => {
+    const aTime = Date.parse(a.created_at || '')
+    const bTime = Date.parse(b.created_at || '')
+
+    if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+      return bTime - aTime
+    }
+
+    return String(b.id || '').localeCompare(String(a.id || ''))
+  })[0] || null
+}
+
+export function hydrateBillingOrderSnapshot<T extends BillingOrderRow, U extends BillingTransactionRow>(
+  order: T,
+  transactions: U[],
+): T {
+  const latestTransaction = selectLatestBillingOrderTransaction(transactions)
+  if (!latestTransaction) return order
+
+  return {
+    ...order,
+    tx_hash: latestTransaction.tx_hash || order.tx_hash || null,
+    token_symbol: latestTransaction.token_symbol || order.token_symbol || null,
+    submitted_at: latestTransaction.created_at || order.submitted_at || null,
+  }
+}
+
 async function upsertSubscriptionFromApprovedOrder(order: BillingOrderRow) {
   if (order.plan_id === 'topup') return null
+
+  const { data: appliedByOrder, error: appliedErr } = await supabase
+    .from('user_subscriptions')
+    .select('*')
+    .eq('source_order_id', order.id)
+    .maybeSingle()
+
+  if (appliedErr) throw appliedErr
+  if (appliedByOrder) {
+    return appliedByOrder
+  }
 
   const plan = BILLING_PLANS[order.plan_id]
   const now = new Date()
@@ -360,6 +415,7 @@ async function upsertSubscriptionFromApprovedOrder(order: BillingOrderRow) {
         ends_at: endsAt,
         unlimited: plan.unlimited,
         included_credits: plan.creditedCenticredits,
+        source_order_id: order.id,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
@@ -389,7 +445,31 @@ async function upsertSubscriptionFromApprovedOrder(order: BillingOrderRow) {
   return created
 }
 
+async function hasGrantedOrderCredits(order: BillingOrderRow): Promise<boolean> {
+  if (order.expected_credits <= 0) return true
+
+  const creditType = order.plan_id === 'topup' ? 'topup' : 'subscription_credit'
+  const { data, error } = await supabase
+    .from('credit_transactions')
+    .select('id')
+    .eq('user_id', order.user_id)
+    .eq('type', creditType)
+    .eq('reference_id', order.id)
+    .eq('amount', order.expected_credits)
+    .maybeSingle()
+
+  if (error) throw error
+  return Boolean(data)
+}
+
 export async function approveBillingOrder(orderId: string, reviewerUserId?: string | null, reviewNote?: string) {
+  const atomic = await approveBillingOrderViaRpc(orderId, reviewerUserId, reviewNote)
+  if (atomic) return atomic
+
+  return approveBillingOrderLegacy(orderId, reviewerUserId, reviewNote)
+}
+
+async function approveBillingOrderLegacy(orderId: string, reviewerUserId?: string | null, reviewNote?: string) {
   const { data: order, error } = await supabase
     .from('billing_orders')
     .select('*')
@@ -406,7 +486,8 @@ export async function approveBillingOrder(orderId: string, reviewerUserId?: stri
 
   const typedOrder = order as BillingOrderRow
 
-  if (typedOrder.expected_credits > 0) {
+  const alreadyGranted = await hasGrantedOrderCredits(typedOrder)
+  if (!alreadyGranted && typedOrder.expected_credits > 0) {
     await grantCredits(
       typedOrder.user_id,
       typedOrder.expected_credits,
@@ -449,6 +530,13 @@ export async function approveBillingOrder(orderId: string, reviewerUserId?: stri
 }
 
 export async function rejectBillingOrder(orderId: string, reviewerUserId?: string | null, reviewNote?: string) {
+  const atomic = await rejectBillingOrderViaRpc(orderId, reviewerUserId, reviewNote)
+  if (atomic) return atomic
+
+  return rejectBillingOrderLegacy(orderId, reviewerUserId, reviewNote)
+}
+
+async function rejectBillingOrderLegacy(orderId: string, reviewerUserId?: string | null, reviewNote?: string) {
   const { data: order, error } = await supabase
     .from('billing_orders')
     .select('*')
@@ -459,6 +547,7 @@ export async function rejectBillingOrder(orderId: string, reviewerUserId?: strin
   if (!order) throw new Error('ORDER_NOT_FOUND')
   if (order.status === 'approved') throw new Error('ORDER_ALREADY_APPROVED')
   if (order.status === 'rejected') throw new Error('ORDER_ALREADY_REJECTED')
+  if (order.status === 'cancelled' || order.status === 'expired') throw new Error('ORDER_NOT_REJECTABLE')
 
   const { data: updatedOrder, error: updateErr } = await supabase
     .from('billing_orders')
@@ -488,6 +577,72 @@ export async function rejectBillingOrder(orderId: string, reviewerUserId?: strin
   return updatedOrder
 }
 
+async function approveBillingOrderViaRpc(
+  orderId: string,
+  reviewerUserId?: string | null,
+  reviewNote?: string,
+): Promise<AtomicBillingReviewResult | null> {
+  const { data, error } = await supabase.rpc('approve_billing_order_atomic', {
+    p_order_id: orderId,
+    p_reviewer_user_id: reviewerUserId || null,
+    p_review_note: reviewNote || null,
+  })
+
+  if (error) {
+    if (isMissingBillingReviewRpc(error, 'approve_billing_order_atomic')) {
+      return null
+    }
+    throw mapBillingReviewRpcError(error)
+  }
+
+  return data as AtomicBillingReviewResult
+}
+
+async function rejectBillingOrderViaRpc(
+  orderId: string,
+  reviewerUserId?: string | null,
+  reviewNote?: string,
+): Promise<BillingOrderRow | null> {
+  const { data, error } = await supabase.rpc('reject_billing_order_atomic', {
+    p_order_id: orderId,
+    p_reviewer_user_id: reviewerUserId || null,
+    p_review_note: reviewNote || null,
+  })
+
+  if (error) {
+    if (isMissingBillingReviewRpc(error, 'reject_billing_order_atomic')) {
+      return null
+    }
+    throw mapBillingReviewRpcError(error)
+  }
+
+  const payload = data as { order?: BillingOrderRow } | null
+  return payload?.order || null
+}
+
+function isMissingBillingReviewRpc(
+  error: { code?: string; message?: string; details?: string | null; hint?: string | null },
+  functionName: string,
+): boolean {
+  const message = [error.message, error.details, error.hint].filter(Boolean).join(' ')
+  return new RegExp(functionName, 'i').test(message) && /find the function|does not exist|schema cache|not found/i.test(message)
+}
+
+function mapBillingReviewRpcError(
+  error: { message?: string; details?: string | null; hint?: string | null }
+): Error {
+  const message = [error.message, error.details, error.hint].filter(Boolean).join(' ')
+
+  if (/ORDER_NOT_FOUND/i.test(message)) return new Error('ORDER_NOT_FOUND')
+  if (/ORDER_ALREADY_APPROVED/i.test(message)) return new Error('ORDER_ALREADY_APPROVED')
+  if (/ORDER_NOT_APPROVABLE/i.test(message)) return new Error('ORDER_NOT_APPROVABLE')
+  if (/ORDER_MISSING_TX/i.test(message)) return new Error('ORDER_MISSING_TX')
+  if (/ORDER_ALREADY_REJECTED/i.test(message)) return new Error('ORDER_ALREADY_REJECTED')
+  if (/ORDER_NOT_REJECTABLE/i.test(message)) return new Error('ORDER_NOT_REJECTABLE')
+
+  return new Error(message || 'Billing review RPC failed')
+}
+
 export async function attachTransactionToBillingOrder(params: {
   userId: string
   billingOrderId: string
@@ -506,6 +661,8 @@ export async function attachTransactionToBillingOrder(params: {
   if (error) throw error
   if (!order) throw new Error('ORDER_NOT_FOUND')
   if (!['created', 'submitted'].includes(order.status)) throw new Error('ORDER_NOT_ATTACHABLE')
+  if (order.tx_hash && order.tx_hash !== txHash) throw new Error('ORDER_ALREADY_HAS_TRANSACTION')
+  if (order.tx_hash === txHash) return order
 
   const { data: updatedOrder, error: updateErr } = await supabase
     .from('billing_orders')

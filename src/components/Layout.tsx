@@ -4,7 +4,7 @@ import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
-import { LogOut, LayoutDashboard, History, Coins, Compass, User, Shield, Plus, Languages } from 'lucide-react'
+import { LogOut, LayoutDashboard, History, Coins, Compass, User, Plus, Languages } from 'lucide-react'
 import clsx from 'clsx'
 import { Logo } from './Logo'
 import { AnimatedBackground } from './AnimatedBackground'
@@ -19,7 +19,7 @@ export const Layout: React.FC = () => {
   const { authenticated, logout } = usePrivy()
   const { wallets } = useWallets()
   const { t, i18n } = useTranslation()
-  const { displayName, creditBalance, role, signOut } = useAuthStore()
+  const { displayName, creditBalance, signOut } = useAuthStore()
   const { reset, stopAllPolling } = useAnalysisStore()
   const activeCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'polling').length)
   const navigate = useNavigate()
@@ -138,21 +138,6 @@ export const Layout: React.FC = () => {
                     <Plus size={15} />
                     <span>{i18n.language === 'zh' ? '充值' : 'Add Credits'}</span>
                   </button>
-
-                  {role === 'admin' && (
-                    <Link
-                      to="/admin"
-                      className={clsx(
-                        'inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-sm font-semibold transition',
-                        location.pathname.startsWith('/admin')
-                          ? 'border-terracotta/40 bg-terracotta/10 text-terracotta'
-                          : 'theme-surface-button'
-                      )}
-                    >
-                      <Shield size={15} />
-                      <span>{t('layout.nav.admin')}</span>
-                    </Link>
-                  )}
 
                   {displayName && (
                     <Link
