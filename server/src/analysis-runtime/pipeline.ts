@@ -439,6 +439,7 @@ async function requestResponsesApi(
           ]
         : undefined,
       tool_choice: requestOptions.useWebSearch ? 'auto' : undefined,
+      stream: false,
     }),
   })
 
@@ -450,7 +451,8 @@ async function requestResponsesApi(
     }
   }
 
-  const data = await response.json() as {
+  const rawBody = await response.text()
+  const data = parseResponsesBody(rawBody) as {
     output_text?: string
     output?: Array<{
       content?: Array<{ type?: string; text?: string }>
@@ -531,6 +533,103 @@ function normalizeResponsesOutput(
     .map((part) => (typeof part?.text === 'string' ? part.text : ''))
     .join('')
     .trim()
+}
+
+function parseResponsesBody(rawBody: string): {
+  output_text?: string
+  output?: Array<{
+    content?: Array<{ type?: string; text?: string }>
+  }>
+} {
+  const trimmed = rawBody.trim()
+  if (!trimmed) {
+    return {}
+  }
+
+  try {
+    return JSON.parse(trimmed) as {
+      output_text?: string
+      output?: Array<{
+        content?: Array<{ type?: string; text?: string }>
+      }>
+    }
+  } catch {
+    return parseResponsesSseBody(trimmed)
+  }
+}
+
+function parseResponsesSseBody(rawBody: string): {
+  output_text?: string
+  output?: Array<{
+    content?: Array<{ type?: string; text?: string }>
+  }>
+} {
+  let outputText = ''
+  let completedResponse:
+    | {
+        output_text?: string
+        output?: Array<{
+          content?: Array<{ type?: string; text?: string }>
+        }>
+      }
+    | null = null
+
+  for (const block of rawBody.split(/\r?\n\r?\n/)) {
+    let eventName = ''
+    const dataLines: string[] = []
+
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice('event:'.length).trim()
+        continue
+      }
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice('data:'.length).trimStart())
+      }
+    }
+
+    if (!dataLines.length) continue
+
+    const payloadText = dataLines.join('\n').trim()
+    if (!payloadText || payloadText === '[DONE]') continue
+
+    try {
+      const payload = JSON.parse(payloadText) as {
+        delta?: string
+        text?: string
+        response?: {
+          output_text?: string
+          output?: Array<{
+            content?: Array<{ type?: string; text?: string }>
+          }>
+        }
+      }
+
+      if (eventName === 'response.output_text.delta' && typeof payload.delta === 'string') {
+        outputText += payload.delta
+      }
+
+      if (eventName === 'response.output_text.done' && typeof payload.text === 'string') {
+        outputText = payload.text
+      }
+
+      if (eventName === 'response.completed' && payload.response) {
+        completedResponse = payload.response
+      }
+    } catch {
+      continue
+    }
+  }
+
+  if (completedResponse) {
+    return completedResponse
+  }
+
+  if (outputText) {
+    return { output_text: outputText }
+  }
+
+  throw new Error('Unsupported SSE response body from analysis provider')
 }
 
 function shouldRetryProviderRequest(status: number, error: string): boolean {
