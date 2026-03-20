@@ -242,6 +242,144 @@ cd ../server && npm run build
 
 然后重启后端进程。
 
+## 定时任务与后台调度
+
+严格来说，项目里只有一条任务使用了 `node-cron`；其余都是服务启动后常驻的 `setInterval` 轮询或维护任务。为了避免混淆，下面分开写。
+
+### 1. 真正的 cron 任务
+
+#### Trending 发现与精选分析
+
+- 启动入口：`server/src/jobs/trending.ts`
+- 调度方式：`node-cron`
+- 表达式：`0 */2 * * *`
+- 默认频率：每 2 小时整点执行一次
+- 启动后行为：服务启动 5 秒后还会额外立即跑一次，避免首页刚启动时没有最新精选内容
+
+主要动作：
+- 拉取 Polymarket 热门事件
+- 先清理已经过期或信号不足的 `featured_analyses`
+- 最多挑选 5 个尚未处理的热门事件
+- 为这些事件创建 `analysis_records` 并写入 `analysis_jobs`
+- 对已完成的系统分析结果生成或更新 `featured_analyses`
+
+影响的数据：
+- `analysis_records`
+- `analysis_jobs`
+- `featured_analyses`
+
+### 2. 常驻 interval 任务
+
+#### Trending 缓存刷新
+
+- 启动入口：`server/src/services/polymarket.ts`
+- 默认频率：每 90 秒刷新一次
+- 启动后行为：服务启动时先立即刷新一次
+
+作用：
+- 刷新 Discovery 页使用的热门事件缓存
+- 热缓存视为 60 秒内新鲜，超过后会尝试拉取上游
+- 如果上游失败，最多可回退到 15 分钟内的本地缓存
+- 缓存文件落在 `server/.cache/trending-events.json`
+
+#### Stale Analysis 清理
+
+- 启动入口：`server/src/jobs/staleAnalysis.ts`
+- 默认频率：每 2 分钟检查一次
+- 判定条件：`analysis_records.status = pending` 且创建时间超过 6 分钟
+
+作用：
+- 将长时间卡住的分析记录标记为 `failed`
+- 对非系统用户触发积分退款
+
+影响的数据：
+- `analysis_records`
+- `credit_transactions`
+
+#### Billing Maintenance
+
+- 启动入口：`server/src/services/billing.ts`
+- 默认频率：每 10 分钟执行一次
+- 启动后行为：服务启动时先立即执行一次
+
+作用：
+- 过期已经结束的订阅，将 `user_subscriptions.status` 改为 `expired`
+- 过期超时未完成的充值/订阅订单，将 `billing_orders.status` 改为 `expired`
+
+影响的数据：
+- `user_subscriptions`
+- `billing_orders`
+
+#### Transaction Verification Retry
+
+- 启动入口：`server/src/services/transaction.ts`
+- 默认频率：每 1 分钟执行一次
+- 启动后行为：服务启动时先立即扫一次
+
+作用：
+- 重试验证处于 `pending_review` 且满足重试条件的链上转账
+- 验证成功后自动发放积分并更新交易审核状态
+
+影响的数据：
+- `transactions`
+- `credit_transactions`
+
+#### Analysis Worker 队列轮询
+
+- 启动入口：`server/src/services/analysisWorker.ts`
+- 默认频率：每 2 秒轮询一次，可通过 `ANALYSIS_WORKER_POLL_MS` 调整
+- 启动后行为：服务启动时立即执行一次 claim
+
+作用：
+- 从 `analysis_jobs` 里领取 `queued` 任务
+- 按 `ANALYSIS_WORKER_CONCURRENCY` 控制最大并发
+- 根据 `engine` 选择执行 `code` 或 `n8n`
+
+影响的数据：
+- `analysis_jobs`
+- `analysis_records`
+
+#### Analysis Worker 卡死任务回收
+
+- 启动入口：`server/src/services/analysisWorker.ts`
+- 默认频率：每 1 分钟执行一次
+- 判定条件：`analysis_jobs.status = running` 且锁超时
+- 锁超时默认值：30 分钟，可通过 `ANALYSIS_JOB_LOCK_MS` 调整
+
+作用：
+- 回收失去 worker lease 的运行中任务
+- 若未到最大重试次数则重新入队
+- 若已到最大重试次数则标记失败并退款
+
+影响的数据：
+- `analysis_jobs`
+- `analysis_records`
+- `credit_transactions`
+
+#### Analysis Worker 心跳
+
+- 启动入口：`server/src/services/analysisWorker.ts`
+- 默认频率：每个活跃任务每 15 秒发送一次心跳，可通过 `ANALYSIS_WORKER_HEARTBEAT_MS` 调整
+
+作用：
+- 刷新 `analysis_jobs.locked_at`
+- 如果 worker 失去任务所有权，当前分析会被主动中止，避免重复 worker 同时写同一条记录
+
+### 3. 不是服务端 cron，但也常被混淆的轮询
+
+#### 前端分析结果轮询
+
+- 接口：`GET /api/analysis/:id/poll`
+- 用途：前端渐进展示 `<!--STEP:info-->`、`<!--STEP:probability-->`、`<!--STEP:risk-->`
+- 说明：这是用户请求驱动的轮询，不是后端定时任务
+
+#### n8n 完成态等待轮询
+
+- 位置：`server/src/services/n8nAnalysis.ts`
+- 默认轮询间隔：2 秒
+- 用途：在测试脚本或 n8n 对照路径中等待分析记录完成
+- 说明：这是函数内部等待逻辑，不是常驻后台 cron
+
 ## 数据库说明
 
 ### `analysis_records`
