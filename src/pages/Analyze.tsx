@@ -7,15 +7,20 @@ import { ProgressiveResult } from '../components/ProgressiveResult'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore, useSessionList, type AnalysisSession } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
+import { formatPolymarketSlugLabel } from '../lib/polymarket'
 
 export const Analyze: React.FC = () => {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { privyUserId } = useAuthStore()
   const { inputUrl, setUrl, activeSessionId, setActiveSession, startAnalysis, cancelAnalysis, retrySession, removeSession } = useAnalysisStore()
   const sessions = useSessionList()
   const toast = useToast()
   const location = useLocation()
   const prevSessionStatuses = useRef<Record<string, string>>({})
+  const workspaceChips = i18n.language === 'zh'
+    ? ['多会话并行', '逐步结果流式展示', '历史与重试保留']
+    : ['Multi-session runs', 'Progressive result streaming', 'History and retry preserved']
+  const workspaceLabel = i18n.language === 'zh' ? '分析工作台' : 'Analysis workspace'
 
   // Prefill URL from Discovery page navigation
   useEffect(() => {
@@ -25,6 +30,14 @@ export const Analyze: React.FC = () => {
       window.history.replaceState({}, '', location.pathname)
     }
   }, [location.state, setUrl, location.pathname])
+
+  useEffect(() => {
+    const pendingUrl = sessionStorage.getItem('polyinsight-pending-url')
+    if (pendingUrl) {
+      setUrl(pendingUrl)
+      sessionStorage.removeItem('polyinsight-pending-url')
+    }
+  }, [setUrl])
 
   // Toast on completion
   useEffect(() => {
@@ -54,54 +67,70 @@ export const Analyze: React.FC = () => {
   return (
     <div
       className={
-        `max-w-4xl mx-auto animate-fade-in-up transition-all duration-700 ` +
+        `max-w-6xl mx-auto animate-fade-in-up transition-all duration-700 ` +
         (isIdle ? 'pt-[18vh] md:pt-[22vh]' : 'pt-2')
       }
     >
       <div className="space-y-8">
         {/* Input Section */}
         <div className="space-y-6">
-          <div className="text-center space-y-2">
-            <h1 className="text-4xl font-serif text-charcoal transition-all duration-700">
-              {t('analyze.title')}
-            </h1>
-            <p className="text-charcoal/60 font-light">{t('analyze.subtitle')}</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
-            <div className="relative group">
-              <input
-                type="url"
-                id="url"
-                required
-                placeholder={t('analyze.placeholder')}
-                className={`block w-full py-4 bg-white border border-charcoal/10 rounded-lg text-charcoal placeholder-charcoal/30 shadow-sm focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta transition-all duration-200 ${inputUrl ? 'px-6 pr-[7.5rem]' : 'px-6 pr-24'}`}
-                value={inputUrl}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-              {inputUrl && (
-                <button
-                  type="button"
-                  onClick={() => setUrl('')}
-                  className="absolute right-[5.5rem] top-1/2 -translate-y-1/2 p-1 text-charcoal/30 hover:text-charcoal/60 transition-colors"
-                  aria-label="Clear URL"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
-              <button
-                type="submit"
-                className="absolute right-2 top-2 bottom-2 px-6 font-medium rounded-md transition-colors duration-200 flex items-center bg-terracotta hover:bg-[#C05638] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send className="h-5 w-5" />
-              </button>
+          <div className="workspace-frame rounded-[34px] px-5 py-6 md:px-7 md:py-7">
+            <div className="text-center space-y-4">
+              <div className="workspace-subpanel inline-flex items-center gap-2 rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-charcoal/48">
+                <Sparkles className="h-3.5 w-3.5 text-terracotta" />
+                <span>{workspaceLabel}</span>
+              </div>
+              <h1 className="text-4xl font-serif text-charcoal transition-all duration-700 md:text-5xl">
+                {t('analyze.title')}
+              </h1>
+              <p className="mx-auto max-w-2xl text-charcoal/60 font-light leading-7">
+                {t('analyze.subtitle')}
+              </p>
             </div>
-          </form>
+
+            <form onSubmit={handleSubmit} className="mx-auto mt-6 max-w-3xl">
+              <div className="relative group">
+                <input
+                  type="url"
+                  id="url"
+                  required
+                  placeholder={t('analyze.placeholder')}
+                  className={`workspace-subpanel block w-full rounded-[24px] py-4 text-charcoal placeholder-charcoal/30 outline-none transition-all duration-200 focus:border-terracotta/40 focus:ring-2 focus:ring-terracotta/12 ${inputUrl ? 'px-6 pr-[7.5rem]' : 'px-6 pr-24'}`}
+                  value={inputUrl}
+                  onChange={(e) => setUrl(e.target.value)}
+                />
+                {inputUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setUrl('')}
+                    className="absolute right-[5.5rem] top-1/2 -translate-y-1/2 p-1 text-charcoal/30 hover:text-charcoal/60 transition-colors"
+                    aria-label="Clear URL"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  className="absolute right-2 top-2 bottom-2 px-6 font-medium rounded-[18px] transition-colors duration-200 flex items-center bg-charcoal hover:bg-[#182335] text-white disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_16px_32px_rgba(16,24,38,0.18)]"
+                >
+                  <Send className="h-5 w-5" />
+                </button>
+              </div>
+            </form>
+
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              {workspaceChips.map((item) => (
+                <span key={item} className="signal-chip rounded-full px-3 py-1.5 text-xs font-semibold text-charcoal/58">
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Session Cards */}
         {sessions.length > 0 && (
-          <div className="space-y-4 max-w-2xl mx-auto">
+          <div className="space-y-5 max-w-4xl mx-auto">
             {sessions.map((session) => (
               <SessionCard
                 key={session.id}
@@ -121,11 +150,6 @@ export const Analyze: React.FC = () => {
 }
 
 // --- Session Card Component ---
-
-function extractSlug(url: string): string {
-  const match = url.match(/polymarket\.com\/event\/([^/?#]+)/)
-  return match ? match[1].replace(/-/g, ' ').slice(0, 50) : url.slice(0, 50)
-}
 
 function countSteps(partialResult: string | null): { done: number; total: number } {
   const total = 4
@@ -154,45 +178,42 @@ const SessionCard: React.FC<SessionCardProps> = ({
   const isCompleted = session.status === 'completed'
   const isFailed = session.status === 'failed'
   const isCancelled = session.status === 'cancelled'
+  const statusLabel =
+    isPolling ? t('analyze.status.step', { done, total }) :
+    isCompleted ? t('analyze.status.done') :
+    isFailed ? t('analyze.status.failed') :
+    t('analyze.status.cancelled')
+  const statusTone =
+    isPolling ? 'tone-caution-badge' :
+    isCompleted ? 'tone-safe-badge' :
+    isFailed ? 'tone-danger-badge' :
+    'tone-reject-badge'
 
   return (
-    <div className={`border rounded-xl overflow-hidden transition-all duration-300 animate-fade-in-up ${
-      isPolling ? 'border-terracotta/20 bg-white shadow-sm' :
-      isCompleted ? 'border-emerald-200 bg-white' :
-      isFailed ? 'border-red-200 bg-white' :
-      'border-charcoal/10 bg-charcoal/[0.02]'
-    }`}>
+    <div className="premium-card rounded-[28px] overflow-hidden transition-all duration-300 animate-fade-in-up">
       {/* Header - always visible */}
       <button
         onClick={onToggle}
-        className="w-full px-5 py-4 flex items-center gap-3 text-left hover:bg-charcoal/[0.02] transition-colors"
+        className="w-full px-5 py-5 flex items-center gap-4 text-left transition-colors"
       >
         {/* Status indicator */}
-        {isPolling && <Loader2 className="w-5 h-5 text-terracotta animate-spin flex-shrink-0" />}
         {isCompleted && (
-          <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+          <div className="w-10 h-10 rounded-2xl tone-safe-surface flex items-center justify-center flex-shrink-0 border">
             <div className="w-2 h-2 rounded-full bg-emerald-500" />
           </div>
         )}
-        {isFailed && <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />}
-        {isCancelled && <StopCircle className="w-5 h-5 text-charcoal/30 flex-shrink-0" />}
+        {isPolling && <div className="w-10 h-10 rounded-2xl tone-caution-surface flex items-center justify-center flex-shrink-0 border"><Loader2 className="w-5 h-5 text-terracotta animate-spin" /></div>}
+        {isFailed && <div className="w-10 h-10 rounded-2xl tone-danger-surface flex items-center justify-center flex-shrink-0 border"><AlertCircle className="w-5 h-5 text-red-400" /></div>}
+        {isCancelled && <div className="w-10 h-10 rounded-2xl tone-reject-surface flex items-center justify-center flex-shrink-0 border"><StopCircle className="w-5 h-5 text-charcoal/40" /></div>}
 
         {/* URL slug */}
-        <span className="text-sm text-charcoal truncate flex-1">
-          {extractSlug(session.url)}
-        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-charcoal truncate">{formatPolymarketSlugLabel(session.url)}</div>
+          <div className="mt-1 text-xs text-charcoal/42 font-mono truncate">{session.url}</div>
+        </div>
 
-        {/* Step progress / status */}
-        <span className={`text-xs font-medium whitespace-nowrap ${
-          isPolling ? 'text-terracotta' :
-          isCompleted ? 'text-emerald-600' :
-          isFailed ? 'text-red-400' :
-          'text-charcoal/40'
-        }`}>
-          {isPolling && t('analyze.status.step', { done, total })}
-          {isCompleted && t('analyze.status.done')}
-          {isFailed && t('analyze.status.failed')}
-          {isCancelled && t('analyze.status.cancelled')}
+        <span className={`hidden md:inline-flex whitespace-nowrap ${statusTone}`}>
+          {statusLabel}
         </span>
 
         {/* Expand chevron */}
@@ -212,7 +233,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               {session.partialResult ? (
                 <ProgressiveResult partialResult={session.partialResult} />
               ) : (
-                <div className="text-center py-6">
+                <div className="workspace-subpanel rounded-[24px] text-center py-8">
                   <Sparkles className="h-6 w-6 text-terracotta animate-pulse mx-auto" />
                   <div className="mt-3 text-sm text-charcoal/60 font-light">
                     {t('analyze.gathering')}
@@ -222,7 +243,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               <div className="flex justify-center">
                 <button
                   onClick={(e) => { e.stopPropagation(); onCancel() }}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-charcoal/50 bg-white border border-charcoal/10 rounded-lg hover:border-red-300 hover:text-red-500 transition-all"
+                  className="theme-surface-button inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-all hover:text-red-500"
                 >
                   <StopCircle className="h-4 w-4" />
                   {t('analyze.cancel')}
@@ -238,7 +259,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               <div className="flex justify-center">
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove() }}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
+                  className="theme-surface-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   {t('analyze.dismiss')}
@@ -250,7 +271,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
           {/* Failed: show error + partial results */}
           {isFailed && (
             <div className="pt-4 space-y-4">
-              <div className="bg-red-50 border border-red-100 rounded-lg p-4 flex items-start gap-3">
+              <div className="workspace-subpanel tone-danger-surface rounded-[24px] p-4 flex items-start gap-3 border">
                 <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <h3 className="text-sm font-medium text-red-600">{t('analyze.failed.title')}</h3>
@@ -275,7 +296,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               <div className="flex justify-center">
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove() }}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
+                  className="theme-surface-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   {t('analyze.dismiss')}
@@ -287,7 +308,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
           {/* Cancelled */}
           {isCancelled && (
             <div className="pt-4 space-y-4">
-              <div className="text-center text-sm text-charcoal/40">{t('analyze.cancelled')}</div>
+              <div className="workspace-subpanel rounded-[24px] text-center py-6 text-sm text-charcoal/48">{t('analyze.cancelled')}</div>
               {session.partialResult && (
                 <div className="opacity-50">
                   <ProgressiveResult partialResult={session.partialResult} />
@@ -296,7 +317,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               <div className="flex justify-center">
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove() }}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-xs text-charcoal/40 hover:text-charcoal/60 transition-colors"
+                  className="theme-surface-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   {t('analyze.dismiss')}

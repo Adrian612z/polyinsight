@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express'
+import { randomInt } from 'crypto'
 import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { config } from '../config.js'
+import { getActiveSubscription } from '../services/billing.js'
 
 const router = Router()
 
@@ -9,7 +11,7 @@ function generateReferralCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
   for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)]
+    code += chars[randomInt(0, chars.length)]
   }
   return code
 }
@@ -40,7 +42,11 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
           .eq('id', userId)
       }
       res.json({
-        user: existing,
+        user: {
+          ...existing,
+          email: email || existing.email,
+          display_name: displayName || existing.display_name,
+        },
         isNew: false,
       })
       return
@@ -120,7 +126,9 @@ router.get('/me', authMiddleware, async (req: Request, res: Response) => {
       return
     }
 
-    res.json({ user })
+    const activeSubscription = await getActiveSubscription(req.userId!)
+
+    res.json({ user, activeSubscription })
   } catch (err) {
     console.error('Get user error:', err)
     res.status(500).json({ error: 'Failed to fetch user info' })

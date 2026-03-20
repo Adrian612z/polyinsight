@@ -45,10 +45,10 @@ export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialRes
         return (
           <div
             key={stepKey}
-            className={`border rounded-lg overflow-hidden transition-all duration-300 ${
-              isDone ? 'border-emerald-200 bg-white' :
-              isInProgress ? 'border-terracotta/30 bg-terracotta/5' :
-              'border-charcoal/10 bg-charcoal/[0.02]'
+            className={`rounded-2xl overflow-hidden transition-all duration-300 workspace-subpanel ${
+              isDone ? 'tone-safe-surface' :
+              isInProgress ? (stalled ? 'tone-caution-surface' : 'tone-caution-surface') :
+              ''
             }`}
           >
             {/* Step Header */}
@@ -68,7 +68,7 @@ export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialRes
               )}
               <span className={`text-sm font-medium ${
                 isDone ? 'text-charcoal' :
-                isInProgress ? 'text-terracotta' :
+                isInProgress ? (stalled ? 'text-amber-600' : 'text-terracotta') :
                 'text-charcoal/40'
               }`}>
                 {t('progress.' + stepKey)}
@@ -85,7 +85,7 @@ export const ProgressiveResult: React.FC<ProgressiveResultProps> = ({ partialRes
             {/* Step Content (only for completed steps) */}
             {isDone && content && (
               <div className="px-4 pb-4 border-t border-charcoal/5">
-                <div className="mt-3 prose prose-sm prose-stone max-w-none prose-p:my-1 prose-li:my-0.5 prose-headings:mt-2 prose-headings:mb-1 max-h-48 overflow-y-auto">
+                <div className="article-prose mt-3 max-h-52 overflow-y-auto">
                   <ReactMarkdown>{content}</ReactMarkdown>
                 </div>
               </div>

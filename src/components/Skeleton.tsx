@@ -9,7 +9,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className }) => {
   return (
     <div
       className={cn(
-        'animate-pulse rounded-md bg-gray-200',
+        'rounded-md skeleton-surface',
         className
       )}
     />
@@ -18,7 +18,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className }) => {
 
 export const SkeletonCard: React.FC = () => {
   return (
-    <div className="p-3 rounded-md border border-gray-100">
+    <div className="workspace-subpanel p-3 rounded-2xl">
       <div className="flex justify-between items-start mb-2">
         <Skeleton className="h-5 w-16 rounded-full" />
         <Skeleton className="h-4 w-20" />

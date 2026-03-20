@@ -40,13 +40,14 @@ type AnalysisStore = AnalysisState & AnalysisActions
 // --- Constants ---
 
 const POLL_INTERVAL = 3000
-const MAX_POLL_TIME = 5 * 60 * 1000       // 5 minutes
-const STALE_THRESHOLD = 90_000             // 90 seconds no progress = stalled
+const MAX_POLL_TIME = 8 * 60 * 1000       // Keep polling longer than the backend stale-job window.
+const MAX_CONSECUTIVE_POLL_ERRORS = 5
 
 // --- Module-level timer + progress tracking ---
 
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const lastProgress = new Map<string, { result: string | null; time: number }>()
+const pollErrorCounts = new Map<string, number>()
 
 function stopSessionPolling(recordId: string) {
   const timer = pollTimers.get(recordId)
@@ -55,6 +56,7 @@ function stopSessionPolling(recordId: string) {
     pollTimers.delete(recordId)
   }
   lastProgress.delete(recordId)
+  pollErrorCounts.delete(recordId)
 }
 
 function getTimeoutMessage(partialResult: string | null): string {
@@ -103,28 +105,9 @@ function startPollingForSession(recordId: string) {
       return
     }
 
-    // Staleness check
-    const progress = lastProgress.get(recordId)
-    if (progress && session.partialResult && elapsed > 30_000) {
-      if (Date.now() - progress.time > STALE_THRESHOLD) {
-        stopSessionPolling(recordId)
-        useAnalysisStore.setState({
-          sessions: {
-            ...useAnalysisStore.getState().sessions,
-            [recordId]: {
-              ...session,
-              status: 'failed' as const,
-              error: getTimeoutMessage(session.partialResult),
-              canRetry: true,
-            },
-          },
-        })
-        return
-      }
-    }
-
     try {
       const data = await api.pollAnalysis(recordId)
+      pollErrorCounts.delete(recordId)
 
       if (data.status === 'completed' && data.analysis_result) {
         stopSessionPolling(recordId)
@@ -158,6 +141,22 @@ function startPollingForSession(recordId: string) {
         return
       }
 
+      if (data.status === 'cancelled') {
+        stopSessionPolling(recordId)
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...session,
+              status: 'cancelled' as const,
+              error: null,
+              canRetry: true,
+            },
+          },
+        })
+        return
+      }
+
       // Update partial result + progress tracking
       if (data.analysis_result) {
         const prev = lastProgress.get(recordId)
@@ -175,6 +174,25 @@ function startPollingForSession(recordId: string) {
       pollTimers.set(recordId, setTimeout(poll, POLL_INTERVAL))
     } catch (err) {
       console.error('Polling error:', err)
+      const nextErrorCount = (pollErrorCounts.get(recordId) || 0) + 1
+      pollErrorCounts.set(recordId, nextErrorCount)
+
+      if (nextErrorCount >= MAX_CONSECUTIVE_POLL_ERRORS) {
+        stopSessionPolling(recordId)
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...session,
+              status: 'failed' as const,
+              error: i18n.t('store.error.backendUnavailable'),
+              canRetry: true,
+            },
+          },
+        })
+        return
+      }
+
       pollTimers.set(recordId, setTimeout(poll, POLL_INTERVAL))
     }
   }

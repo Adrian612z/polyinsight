@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../lib/backend'
+import { fetchAndCacheHistoryPage, getCachedHistoryPage, setCachedHistoryPage } from '../lib/pageCache'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
 import { format } from 'date-fns'
-import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock, Trash2 } from 'lucide-react'
+import { ExternalLink, ChevronLeft, ChevronRight, Inbox, Clock, Trash2, X } from 'lucide-react'
 import { DecisionCard, parseResult, riskConfig } from '../components/DecisionCard'
 import { SkeletonList } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
+import { formatPolymarketSlugLabel } from '../lib/polymarket'
 
 interface AnalysisRecord {
   id: string
@@ -38,6 +40,9 @@ export const History: React.FC = () => {
   const toast = useToast()
 
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
+  const pageLabel = t('history.records', { count: totalCount })
+  const desktopPanelHeight = 'lg:h-[min(820px,calc(100vh-185px))]'
+  const mobileListHeight = 'h-[min(760px,calc(100vh-205px))]'
 
   const deleteRecord = async (record: AnalysisRecord, e?: React.MouseEvent) => {
     e?.stopPropagation()
@@ -47,8 +52,18 @@ export const History: React.FC = () => {
     try {
       await api.deleteAnalysis(record.id)
 
-      setRecords((prev) => prev.filter((r) => r.id !== record.id))
-      setTotalCount((prev) => prev - 1)
+      const nextRecords = records.filter((r) => r.id !== record.id)
+      const nextTotal = Math.max(0, totalCount - 1)
+
+      setRecords(nextRecords)
+      setTotalCount(nextTotal)
+      if (privyUserId) {
+        setCachedHistoryPage(privyUserId, currentPage, PAGE_SIZE, {
+          records: nextRecords,
+          total: nextTotal,
+          page: currentPage,
+        })
+      }
       if (selectedRecord?.id === record.id) setSelectedRecord(null)
       toast.success(t('history.toast.deleted'))
     } catch (err) {
@@ -64,22 +79,38 @@ export const History: React.FC = () => {
   }
 
   useEffect(() => {
-    const fetchRecords = async () => {
-      if (!privyUserId) return
-
-      setLoading(true)
-      try {
-        const res = await api.getAnalysisHistory(currentPage, PAGE_SIZE)
-        setTotalCount(res.total || 0)
-        setRecords(res.records || [])
-      } catch (err) {
-        console.error('Error fetching records:', err)
-      } finally {
-        setLoading(false)
-      }
+    if (!privyUserId) {
+      setLoading(false)
+      return
     }
 
-    fetchRecords()
+    let cancelled = false
+    const cached = getCachedHistoryPage(privyUserId, currentPage, PAGE_SIZE)
+
+    if (cached) {
+      setRecords(cached.records)
+      setTotalCount(cached.total)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
+
+    void fetchAndCacheHistoryPage(privyUserId, currentPage, PAGE_SIZE)
+      .then((res) => {
+        if (cancelled) return
+        setTotalCount(res.total)
+        setRecords(res.records)
+        setLoading(false)
+      })
+      .catch((err) => {
+        console.error('Error fetching records:', err)
+        if (cancelled || cached) return
+        setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [privyUserId, currentPage, completedCount])
 
   const goToPage = (page: number) => {
@@ -90,27 +121,29 @@ export const History: React.FC = () => {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-160px)] animate-fade-in-up">
+    <div className="animate-fade-in-up">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[380px_minmax(0,1fr)] lg:h-[calc(100vh-160px)]">
       {/* List Column - Minimalist */}
-      <div className="lg:col-span-1 bg-white border border-charcoal/5 rounded-lg overflow-hidden flex flex-col">
-        <div className="p-4 border-b border-charcoal/5 bg-warm-white/50">
-          <h2 className="font-serif text-lg text-charcoal flex items-center gap-2">
+      <div className={`workspace-frame rounded-[30px] overflow-hidden flex flex-col min-h-0 ${mobileListHeight} ${desktopPanelHeight}`}>
+        <div className="p-5 border-b border-charcoal/5">
+          <div className="section-label mb-2">History</div>
+          <h2 className="font-serif text-2xl text-charcoal flex items-center gap-3">
             <Clock className="w-4 h-4 text-charcoal/40" />
             {t('history.title')}
           </h2>
-          <p className="text-xs text-charcoal/40 mt-1 pl-6">{t('history.records', { count: totalCount })}</p>
+          <p className="text-sm text-charcoal/48 mt-2 pl-7">{pageLabel}</p>
         </div>
 
-        <div className="overflow-y-auto flex-1">
+        <div className="overflow-y-auto flex-1 p-4 space-y-3">
           {loading ? (
-            <div className="p-4"><SkeletonList count={5} /></div>
+            <SkeletonList count={5} />
           ) : records.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-charcoal/40">
               <Inbox className="w-8 h-8 mb-2 opacity-50" />
               <p className="text-sm">{t('history.empty')}</p>
             </div>
           ) : (
-            <div className="divide-y divide-charcoal/5">
+            <div className="space-y-3">
               {records.map((record) => {
                 const status = statusConfig[record.status]
                 const isSelected = selectedRecord?.id === record.id
@@ -118,22 +151,20 @@ export const History: React.FC = () => {
                   <div
                     key={record.id}
                     onClick={() => setSelectedRecord(record)}
-                    className={`p-4 cursor-pointer transition-colors duration-200 group ${
-                      isSelected
-                        ? 'bg-sand/30 border-l-4 border-terracotta pl-[13px]' // compensalte padding for border
-                        : 'hover:bg-warm-white border-l-4 border-transparent'
+                    className={`workspace-list-item rounded-[22px] p-4 cursor-pointer group ${
+                      isSelected ? 'workspace-list-item-active' : ''
                     }`}
                   >
-                    <div className="flex justify-between items-start mb-1">
-                      <p className={`text-sm font-medium truncate pr-4 ${isSelected ? 'text-charcoal' : 'text-charcoal/80'}`} title={record.event_url}>
-                        {record.event_url.replace('https://polymarket.com/event/', '')}
+                    <div className="flex justify-between items-start gap-4 mb-3">
+                      <p className={`text-sm font-semibold truncate pr-4 ${isSelected ? 'text-charcoal' : 'text-charcoal/82'}`} title={record.event_url}>
+                        {formatPolymarketSlugLabel(record.event_url, 80)}
                       </p>
+                      <span className={`shrink-0 ${record.status === 'completed' ? 'tone-safe-badge' : record.status === 'pending' ? 'tone-caution-badge' : 'tone-danger-badge'}`}>
+                        {status.label}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center mt-2">
                       <div className="flex items-center gap-1.5">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium uppercase tracking-wider ${status.className}`}>
-                          {status.label}
-                        </span>
                         {record.status === 'completed' && record.analysis_result && (() => {
                           const { decision } = parseResult(record.analysis_result)
                           if (!decision) return null
@@ -146,8 +177,8 @@ export const History: React.FC = () => {
                         <button
                           onClick={(e) => deleteRecord(record, e)}
                           disabled={deletingIds.has(record.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-charcoal/30 hover:text-red-500 hover:bg-red-50 transition-all disabled:opacity-50"
-                          title="Delete record"
+                          className="opacity-0 group-hover:opacity-100 p-2 rounded-full text-charcoal/30 hover:text-red-500 transition-all disabled:opacity-50"
+                          title={t('history.report.delete')}
                         >
                           <Trash2 size={12} />
                         </button>
@@ -165,12 +196,12 @@ export const History: React.FC = () => {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="p-3 border-t border-charcoal/5 flex items-center justify-center bg-warm-white/50">
+          <div className="p-4 border-t border-charcoal/5 flex items-center justify-center">
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => goToPage(currentPage - 1)}
                 disabled={currentPage === 1}
-                className="p-1.5 rounded hover:bg-charcoal/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-charcoal/60"
+                className="theme-surface-button p-2 rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-charcoal/60"
               >
                 <ChevronLeft size={16} />
               </button>
@@ -180,7 +211,7 @@ export const History: React.FC = () => {
               <button
                 onClick={() => goToPage(currentPage + 1)}
                 disabled={currentPage === totalPages}
-                className="p-1.5 rounded hover:bg-charcoal/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-charcoal/60"
+                className="theme-surface-button p-2 rounded-full disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-charcoal/60"
               >
                 <ChevronRight size={16} />
               </button>
@@ -190,12 +221,13 @@ export const History: React.FC = () => {
       </div>
 
       {/* Detail Column - Paper-like */}
-      <div className="lg:col-span-2 bg-white border border-charcoal/5 rounded-lg overflow-hidden flex flex-col shadow-sm">
+      <div className={`premium-card rounded-[30px] overflow-hidden min-h-0 hidden lg:flex flex-col ${desktopPanelHeight}`}>
         {selectedRecord ? (
           <>
-            <div className="p-6 border-b border-charcoal/5 flex justify-between items-start bg-warm-white/30">
+            <div className="p-6 border-b border-charcoal/5 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <h3 className="font-serif text-xl text-charcoal mb-1">{t('history.report.title')}</h3>
+                <div className="section-label mb-2">{t('history.report.title')}</div>
+                <h3 className="font-serif text-2xl text-charcoal mb-1">{formatPolymarketSlugLabel(selectedRecord.event_url, 120)}</h3>
                 <p className="text-xs text-charcoal/40 font-mono">
                   {t('history.report.generated', { date: format(new Date(selectedRecord.created_at), 'yyyy-MM-dd HH:mm') })}
                 </p>
@@ -204,7 +236,7 @@ export const History: React.FC = () => {
                 <button
                   onClick={() => deleteRecord(selectedRecord)}
                   disabled={deletingIds.has(selectedRecord.id)}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-charcoal/40 border border-charcoal/10 rounded hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors disabled:opacity-50"
+                  className="theme-surface-button inline-flex items-center rounded-full px-3.5 py-2 text-xs font-medium transition-colors disabled:opacity-50 hover:text-red-500"
                 >
                   <Trash2 size={12} className="mr-1.5" /> {t('history.report.delete')}
                 </button>
@@ -212,18 +244,18 @@ export const History: React.FC = () => {
                   href={selectedRecord.event_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-terracotta border border-terracotta/20 rounded hover:bg-terracotta hover:text-white transition-colors"
+                  className="theme-contrast-button inline-flex items-center rounded-full px-3.5 py-2 text-xs font-medium transition-colors"
                 >
                   {t('history.report.viewSource')} <ExternalLink size={12} className="ml-1.5" />
                 </a>
               </div>
             </div>
             
-            <div className="p-8 overflow-y-auto flex-1">
+            <div className="p-6 md:p-8 overflow-y-auto flex-1">
               {selectedRecord.analysis_result ? (
                 <DecisionCard result={selectedRecord.analysis_result} eventUrl={selectedRecord.event_url} />
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-charcoal/30">
+                <div className="workspace-subpanel rounded-[24px] flex flex-col items-center justify-center h-full text-charcoal/30 py-16">
                   <Clock className="w-12 h-12 mb-3 opacity-20" />
                   <p className="text-sm font-serif italic">{t('history.report.pendingText')}</p>
                 </div>
@@ -231,15 +263,71 @@ export const History: React.FC = () => {
             </div>
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center h-full text-charcoal/30 bg-warm-white/10">
+          <div className="flex flex-col items-center justify-center h-full text-charcoal/30 px-6">
+            <div className="workspace-subpanel w-full max-w-md rounded-[28px] py-14 flex flex-col items-center justify-center">
             <div className="w-16 h-16 border border-charcoal/10 rounded-full flex items-center justify-center mb-4">
               <Inbox className="w-8 h-8 opacity-40" />
             </div>
             <p className="text-sm font-serif">{t('history.report.selectPrompt')}</p>
+            </div>
           </div>
         )}
       </div>
+      </div>
+
+      {selectedRecord && (
+        <div className="lg:hidden fixed inset-0 z-40 bg-charcoal/28 backdrop-blur-sm p-4">
+          <div className="premium-card rounded-[30px] overflow-hidden flex flex-col h-[calc(100vh-2rem)]">
+            <div className="p-5 border-b border-charcoal/5 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="section-label mb-2">{t('history.report.title')}</div>
+                <h3 className="font-serif text-xl text-charcoal leading-tight break-words">
+                  {formatPolymarketSlugLabel(selectedRecord.event_url, 100)}
+                </h3>
+                <p className="text-xs text-charcoal/40 font-mono mt-1">
+                  {t('history.report.generated', { date: format(new Date(selectedRecord.created_at), 'yyyy-MM-dd HH:mm') })}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedRecord(null)}
+                className="theme-surface-button inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-charcoal/70"
+                aria-label={t('common.close', 'Close')}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 flex items-center gap-2 border-b border-charcoal/5">
+              <button
+                onClick={() => deleteRecord(selectedRecord)}
+                disabled={deletingIds.has(selectedRecord.id)}
+                className="theme-surface-button inline-flex items-center rounded-full px-3.5 py-2 text-xs font-medium transition-colors disabled:opacity-50 hover:text-red-500"
+              >
+                <Trash2 size={12} className="mr-1.5" /> {t('history.report.delete')}
+              </button>
+              <a
+                href={selectedRecord.event_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="theme-contrast-button inline-flex items-center rounded-full px-3.5 py-2 text-xs font-medium transition-colors"
+              >
+                {t('history.report.viewSource')} <ExternalLink size={12} className="ml-1.5" />
+              </a>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 min-h-0">
+              {selectedRecord.analysis_result ? (
+                <DecisionCard result={selectedRecord.analysis_result} eventUrl={selectedRecord.event_url} />
+              ) : (
+                <div className="workspace-subpanel rounded-[24px] flex flex-col items-center justify-center h-full text-charcoal/30 py-16">
+                  <Clock className="w-12 h-12 mb-3 opacity-20" />
+                  <p className="text-sm font-serif italic">{t('history.report.pendingText')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-

@@ -7,8 +7,6 @@
  *  - connectWalletConnect: open WalletConnect v2 modal
  */
 
-import EthereumProvider from '@walletconnect/ethereum-provider'
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -120,6 +118,8 @@ export async function connectWalletConnect(): Promise<ConnectedWallet> {
       'Missing VITE_WALLETCONNECT_PROJECT_ID — get one at https://cloud.walletconnect.com'
     )
   }
+
+  const { default: EthereumProvider } = await import('@walletconnect/ethereum-provider')
 
   const wcProvider = await EthereumProvider.init({
     projectId,

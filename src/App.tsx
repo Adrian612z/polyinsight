@@ -1,19 +1,27 @@
-import { useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useRef, type ComponentType, type ReactNode } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 import { useAuthStore } from './store/authStore'
 import { api, setPrivyToken } from './lib/backend'
-import { Layout } from './components/Layout'
-import { Analyze } from './pages/Analyze'
-import { History } from './pages/History'
+import { primeWorkspaceCaches } from './lib/pageCache'
 import { Discovery } from './pages/Discovery'
-import { Profile } from './pages/Profile'
-import { AdminLayout } from './pages/admin/AdminLayout'
-import { AdminDashboard } from './pages/admin/Dashboard'
-import { AdminUsers } from './pages/admin/Users'
-import { AdminAnalyses } from './pages/admin/Analyses'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ToastProvider } from './components/Toast'
+
+function lazyNamed<T extends Record<string, unknown>, K extends keyof T & string>(
+  loader: () => Promise<T>,
+  key: K,
+) {
+  return lazy(async () => {
+    const module = await loader()
+    return { default: module[key] as ComponentType }
+  })
+}
+
+const Layout = lazyNamed(() => import('./components/Layout'), 'Layout')
+const Analyze = lazyNamed(() => import('./pages/Analyze'), 'Analyze')
+const History = lazyNamed(() => import('./pages/History'), 'History')
+const Profile = lazyNamed(() => import('./pages/Profile'), 'Profile')
 
 function App() {
   const { ready, authenticated, user, getAccessToken } = usePrivy()
@@ -46,7 +54,7 @@ function App() {
       if (!registeredRef.current) {
         registeredRef.current = true
         const referralCode = localStorage.getItem('polyinsight_ref') || undefined
-        getAccessToken().then((token) => {
+            getAccessToken().then((token) => {
           if (token) setPrivyToken(token)
           return api.register({
             email: user.email?.address || user.google?.email || undefined,
@@ -58,8 +66,8 @@ function App() {
             setUserInfo({
               creditBalance: res.user.credit_balance,
               referralCode: res.user.referral_code,
-              role: res.user.role,
             })
+            void primeWorkspaceCaches(user.id)
           }
           if (referralCode) localStorage.removeItem('polyinsight_ref')
         }).catch((err) => {
@@ -83,38 +91,56 @@ function App() {
 
   return (
     <ErrorBoundary>
-    <ToastProvider>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Discovery />} />
+      <ToastProvider>
+        <BrowserRouter>
+          <ScrollToTop />
+          <Routes>
+            <Route path="/" element={<Discovery />} />
 
-        <Route element={<Layout />}>
-          <Route
-            path="/analyze"
-            element={authenticated ? <Analyze /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/history"
-            element={authenticated ? <History /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/profile"
-            element={authenticated ? <Profile /> : <Navigate to="/" />}
-          />
-          <Route
-            path="/admin"
-            element={authenticated ? <AdminLayout /> : <Navigate to="/" />}
-          >
-            <Route index element={<AdminDashboard />} />
-            <Route path="users" element={<AdminUsers />} />
-            <Route path="analyses" element={<AdminAnalyses />} />
-          </Route>
-        </Route>
-      </Routes>
-    </BrowserRouter>
-    </ToastProvider>
+            <Route element={<RouteSuspense><Layout /></RouteSuspense>}>
+              <Route
+                path="/analyze"
+                element={authenticated ? <RouteSuspense><Analyze /></RouteSuspense> : <Navigate to="/" />}
+              />
+              <Route
+                path="/history"
+                element={authenticated ? <RouteSuspense><History /></RouteSuspense> : <Navigate to="/" />}
+              />
+              <Route
+                path="/profile"
+                element={authenticated ? <RouteSuspense><Profile /></RouteSuspense> : <Navigate to="/" />}
+              />
+            </Route>
+            <Route path="/admin/*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </ErrorBoundary>
   )
+}
+
+function RouteSuspense({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={(
+        <div className="min-h-screen flex items-center justify-center bg-warm-white">
+          <div className="text-charcoal/45 text-sm">Loading...</div>
+        </div>
+      )}
+    >
+      {children}
+    </Suspense>
+  )
+}
+
+function ScrollToTop() {
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [pathname])
+
+  return null
 }
 
 export default App

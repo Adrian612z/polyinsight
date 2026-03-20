@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { X, ArrowRightLeft, Loader, CheckCircle, ChevronDown } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { api } from '../lib/backend'
+import { useAuthStore } from '../store/authStore'
 
 interface ChainConfig {
   id: string
@@ -32,12 +35,14 @@ const CHAIN_DISPLAY: Record<string, { label: string; color: string }> = {
   bnb: { label: 'BNB Chain', color: '#F0B90B' },
 }
 
-const MIN_AMOUNT = 0.01
-
 interface TransferModalProps {
   fromAddress: string
   toAddress: string
   provider: unknown
+  planLabel: string
+  planSummary: string
+  fixedAmount?: number
+  billingOrderId?: string
   onClose: () => void
 }
 
@@ -54,8 +59,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   fromAddress,
   toAddress,
   provider,
+  planLabel,
+  planSummary,
+  fixedAmount,
+  billingOrderId,
   onClose,
 }) => {
+  const { t } = useTranslation()
   const [chains, setChains] = useState<ChainConfig[]>([])
   const [selectedChain, setSelectedChain] = useState<ChainConfig | null>(null)
   const [chainDropdownOpen, setChainDropdownOpen] = useState(false)
@@ -65,6 +75,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [sending, setSending] = useState(false)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const minimumAmount = fixedAmount ?? 0.01
+  const currentCreditBalance = useAuthStore((s) => s.creditBalance)
+  const setCreditBalance = useAuthStore((s) => s.setCreditBalance)
 
   useEffect(() => {
     fetch('/api/chains')
@@ -74,9 +87,18 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         setChains(list)
         if (list.length > 0) setSelectedChain(list[0])
       })
-      .catch(() => setError('Failed to load chain configs'))
+      .catch(() => setError(t('transfer.errors.loadChains')))
       .finally(() => setLoadingChains(false))
-  }, [])
+  }, [t])
+
+  useEffect(() => {
+    if (fixedAmount) {
+      setAmount(String(fixedAmount))
+      return
+    }
+
+    setAmount('')
+  }, [fixedAmount])
 
   // Reset token selection when chain changes
   useEffect(() => {
@@ -85,7 +107,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
   const tokens = selectedChain ? getTokensForChain(selectedChain) : []
   const parsedAmount = parseFloat(amount)
-  const isValidAmount = !isNaN(parsedAmount) && parsedAmount >= MIN_AMOUNT
+  const isValidAmount = !isNaN(parsedAmount) && parsedAmount >= minimumAmount
   const canTransfer = selectedChain !== null && selectedToken !== null && isValidAmount && !sending
 
   const shortAddress = (addr: string): string => {
@@ -150,22 +172,21 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
       setTxHash(txHash)
 
-      // Save transaction to backend
-      fetch('/api/transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tx_hash: txHash,
-          from_address: fromAddress,
-          to_address: toAddress,
-          chain_name: selectedChain?.chain_name,
-          token_symbol: token.symbol,
-          amount: String(parsedAmount),
-        }),
-      }).catch(() => { /* best-effort, don't block UI */ })
+      // Save transaction to backend and best-effort refresh the visible credit balance.
+      api.saveTransaction({
+        tx_hash: txHash,
+        from_address: fromAddress,
+        to_address: toAddress,
+        chain_name: selectedChain?.chain_name,
+        token_symbol: token.symbol,
+        amount: String(parsedAmount),
+        billing_order_id: billingOrderId,
+      })
+        .then(() => refreshVisibleBalance(currentCreditBalance, setCreditBalance))
+        .catch(() => { /* best-effort, don't block UI */ })
     } catch (err) {
       console.error('Transfer error:', err)
-      setError(err instanceof Error ? err.message : 'Transfer failed')
+      setError(err instanceof Error ? err.message : t('transfer.errors.failed'))
     } finally {
       setSending(false)
     }
@@ -179,7 +200,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h3 className="text-lg font-semibold text-gray-900">Transfer Funds</h3>
+          <h3 className="text-lg font-semibold text-gray-900">{t('transfer.title')}</h3>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
@@ -196,29 +217,35 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               <div className="flex justify-center mb-4">
                 <CheckCircle size={48} className="text-emerald-500" />
               </div>
-              <h4 className="text-base font-semibold text-gray-900 mb-2">Transfer Submitted</h4>
+              <h4 className="text-base font-semibold text-gray-900 mb-2">{t('transfer.success.title')}</h4>
               <p className="text-sm text-gray-500 mb-4">
-                {amount} {selectedTokenInfo?.symbol} sent to Fere wallet
+                {t('transfer.success.description', { amount, token: selectedTokenInfo?.symbol || '' })}
               </p>
               <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4">
-                <div className="text-xs text-gray-500 mb-1">Transaction Hash</div>
+                <div className="text-xs text-gray-500 mb-1">{t('transfer.success.hash')}</div>
                 <div className="text-xs font-mono text-gray-900 break-all">{txHash}</div>
               </div>
               <button
                 onClick={onClose}
                 className="w-full py-3 bg-gray-900 hover:bg-gray-700 text-white rounded-xl font-medium transition-colors"
               >
-                Done
+                {t('transfer.success.done')}
               </button>
             </div>
           ) : (
             <>
-              <p className="text-sm text-gray-500 mb-6">Transfer EVM funds to your Fere wallet</p>
+              <p className="text-sm text-gray-500 mb-6">{t('transfer.subtitle')}</p>
+
+              <div className="mb-6 rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-4">
+                <div className="text-xs font-semibold uppercase tracking-[0.16em] text-indigo-500">{t('transfer.selectedPlan')}</div>
+                <div className="mt-2 text-base font-semibold text-gray-900">{planLabel}</div>
+                <p className="mt-1 text-sm text-gray-500">{planSummary}</p>
+              </div>
 
               {/* From */}
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">From</span>
+                  <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">{t('transfer.from')}</span>
                   <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center">
                     <ArrowRightLeft size={14} className="text-gray-600" />
                   </div>
@@ -233,7 +260,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               {/* To */}
               <div className="mb-6">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">To (Your Fere Wallet)</span>
+                  <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">{t('transfer.to')}</span>
         
                 </div>
                 <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
@@ -245,10 +272,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
               {/* Chain Selection */}
               <div className="mb-6">
-                <div className="text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Chain</div>
+                <div className="text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">{t('transfer.chain')}</div>
                 {loadingChains ? (
                   <div className="flex items-center justify-center py-3 text-gray-400">
-                    <Loader size={16} className="animate-spin mr-2" /> Loading chains...
+                    <Loader size={16} className="animate-spin mr-2" /> {t('transfer.loadingChains')}
                   </div>
                 ) : (
                   <div className="relative">
@@ -269,7 +296,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                           </span>
                         </div>
                       ) : (
-                        <span className="text-sm text-gray-400">Select a chain</span>
+                        <span className="text-sm text-gray-400">{t('transfer.selectChain')}</span>
                       )}
                       <ChevronDown size={16} className={`text-gray-400 transition-transform ${chainDropdownOpen ? 'rotate-180' : ''}`} />
                     </button>
@@ -302,7 +329,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
               {/* Token Selection */}
               <div className="mb-6">
-                <div className="text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">Token</div>
+                <div className="text-xs font-medium text-gray-700 uppercase tracking-wider mb-2">{t('transfer.token')}</div>
                 <div className="flex gap-3">
                   {tokens.map((token) => (
                     <button
@@ -335,20 +362,26 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               {/* Amount */}
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">Amount</span>
-                  <span className="text-xs text-gray-400">Min: {MIN_AMOUNT} {selectedTokenInfo?.symbol || 'USDC/USDT'}</span>
+                  <span className="text-xs font-medium text-gray-700 uppercase tracking-wider">{t('transfer.amount')}</span>
+                  <span className="text-xs text-gray-400">
+                    {fixedAmount
+                      ? t('transfer.exactAmount', { amount: fixedAmount, token: selectedTokenInfo?.symbol || 'USDC/USDT' })
+                      : t('transfer.minimumAmount', { amount: minimumAmount, token: selectedTokenInfo?.symbol || 'USDC/USDT' })}
+                  </span>
                 </div>
                 <div className="relative">
                   <input
                     type="number"
-                    min={MIN_AMOUNT}
+                    min={minimumAmount}
                     step="0.01"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    placeholder={`Enter amount (min ${MIN_AMOUNT})`}
-                    disabled={!selectedToken}
+                    placeholder={fixedAmount
+                      ? t('transfer.exactAmountPlaceholder', { amount: fixedAmount })
+                      : t('transfer.amountPlaceholder', { amount: minimumAmount })}
+                    disabled={!selectedToken || Boolean(fixedAmount)}
                     className={`w-full bg-gray-50 border rounded-xl px-4 py-3 text-sm outline-none transition-colors ${
-                      !selectedToken
+                      !selectedToken || fixedAmount
                         ? 'border-gray-200 text-gray-400 cursor-not-allowed'
                         : amount && !isValidAmount
                           ? 'border-red-300 text-red-600 focus:border-red-400'
@@ -362,7 +395,12 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                   )}
                 </div>
                 {amount && !isValidAmount && (
-                  <p className="text-xs text-red-500 mt-1">Minimum amount is {MIN_AMOUNT}</p>
+                  <p className="text-xs text-red-500 mt-1">{t('transfer.minimumAmountError', { amount: minimumAmount })}</p>
+                )}
+                {fixedAmount && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    {t('transfer.exactAmountHint')}
+                  </p>
                 )}
               </div>
 
@@ -386,10 +424,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                 {sending ? (
                   <>
                     <Loader size={16} className="animate-spin" />
-                    Confirming in wallet...
+                    {t('transfer.confirming')}
                   </>
                 ) : (
-                  `Transfer${isValidAmount ? ` ${amount} ${selectedTokenInfo?.symbol || ''}` : ''} →`
+                  t('transfer.submit', {
+                    amount: isValidAmount ? amount : '',
+                    token: isValidAmount ? ` ${selectedTokenInfo?.symbol || ''}` : '',
+                  })
                 )}
               </button>
             </>
@@ -398,4 +439,28 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       </div>
     </div>
   )
+}
+
+async function refreshVisibleBalance(
+  previousBalance: number,
+  setCreditBalance: (balance: number) => void,
+) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    await sleep(2000)
+
+    try {
+      const res = await api.getMe()
+      const nextBalance = res?.user?.credit_balance
+      if (typeof nextBalance === 'number' && nextBalance !== previousBalance) {
+        setCreditBalance(nextBalance)
+        return
+      }
+    } catch {
+      // Ignore transient polling failures. The user can still refresh manually.
+    }
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
 }

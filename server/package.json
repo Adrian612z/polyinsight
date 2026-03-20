@@ -4,9 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
-    "build": "tsc"
+    "dev": "NODE_USE_ENV_PROXY=1 tsx watch src/index.ts",
+    "dev:api": "NODE_USE_ENV_PROXY=1 ANALYSIS_WORKER_ENABLED=false tsx watch src/index.ts",
+    "dev:worker": "NODE_USE_ENV_PROXY=1 ANALYSIS_WORKER_ENABLED=true tsx watch src/worker.ts",
+    "start": "NODE_USE_ENV_PROXY=1 node dist/index.js",
+    "start:api": "NODE_USE_ENV_PROXY=1 ANALYSIS_WORKER_ENABLED=false node dist/index.js",
+    "start:worker": "NODE_USE_ENV_PROXY=1 ANALYSIS_WORKER_ENABLED=true node dist/worker.js",
+    "build": "tsc",
+    "test:code-analysis": "NODE_USE_ENV_PROXY=1 tsx src/scripts/testCodeAnalysis.ts",
+    "test:n8n-analysis": "NODE_USE_ENV_PROXY=1 tsx src/scripts/testN8nAnalysis.ts"
   },
   "dependencies": {
     "@privy-io/server-auth": "^1.18.0",

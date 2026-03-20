@@ -1,11 +1,21 @@
 import cron from 'node-cron'
 import { supabase } from '../services/supabase.js'
 import { fetchTrendingEvents } from '../services/polymarket.js'
-import { config } from '../config.js'
+import { extractPolymarketSlug } from '../utils/polymarket.js'
+import { enqueueAnalysisJob } from '../services/analysisJobs.js'
+import {
+  calculateMispricingScore,
+  getFeaturedSignalStrength,
+  guessCategory,
+  isExpiredFeature,
+  isRenderableFeatured,
+  parseDecisionJson,
+  type FeaturedRecord,
+} from '../services/featured.js'
 
 export function startTrendingJob() {
-  // Run every 4 hours
-  cron.schedule('0 */4 * * *', async () => {
+  // Run every 2 hours
+  cron.schedule('0 */2 * * *', async () => {
     console.log('[Trending] Fetching trending events...')
     try {
       await discoverAndAnalyze()
@@ -14,15 +24,17 @@ export function startTrendingJob() {
     }
   })
 
-  // Also run once on startup (after 30s delay)
+  // Run once on startup shortly after boot so discovery page has fresh data.
   setTimeout(() => {
     discoverAndAnalyze().catch(err => console.error('[Trending] Initial run failed:', err))
-  }, 30000)
+  }, 5000)
 
-  console.log('[Trending] Cron job scheduled: every 4 hours')
+  console.log('[Trending] Cron job scheduled: every 2 hours')
 }
 
 async function discoverAndAnalyze() {
+  await cleanupFeaturedPool()
+
   const events = await fetchTrendingEvents(10)
   console.log(`[Trending] Found ${events.length} trending events`)
 
@@ -33,11 +45,11 @@ async function discoverAndAnalyze() {
     // Skip if already featured
     const { data: existing } = await supabase
       .from('featured_analyses')
-      .select('id')
+      .select('*')
       .eq('event_slug', event.slug)
       .single()
 
-    if (existing) continue
+    if (existing && isRenderableFeatured(existing as FeaturedRecord)) continue
 
     // Skip if already analyzed recently
     const polymarketUrl = `https://polymarket.com/event/${event.slug}`
@@ -74,20 +86,23 @@ async function discoverAndAnalyze() {
       continue
     }
 
-    // Trigger n8n webhook
     try {
-      await fetch(config.n8nWebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await enqueueAnalysisJob({
+        analysisRecordId: record.id,
+        userId: 'system:auto-discovery',
+        lang: 'en',
+        payload: {
           url: polymarketUrl,
-          user_id: 'system:auto-discovery',
-          record_id: record.id,
-        }),
+          originalUrl: polymarketUrl,
+          slug: event.slug,
+          userId: 'system:auto-discovery',
+          recordId: record.id,
+          lang: 'en',
+        },
       })
-      console.log(`[Trending] Triggered analysis for: ${event.slug}`)
+      console.log(`[Trending] Enqueued analysis for: ${event.slug}`)
     } catch (err) {
-      console.error(`[Trending] Webhook failed for ${event.slug}:`, err)
+      console.error(`[Trending] Queue failed for ${event.slug}:`, err)
     }
 
     analyzed++
@@ -111,14 +126,6 @@ async function populateCompletedFeatured() {
     const slug = extractSlug(record.event_url)
     if (!slug) continue
 
-    const { data: existing } = await supabase
-      .from('featured_analyses')
-      .select('id')
-      .eq('event_slug', slug)
-      .single()
-
-    if (existing) continue
-
     const event = { slug, title: '', volume: 0, volume24hr: 0, endDate: '', markets: [] }
     await createFeaturedEntry(event, record)
   }
@@ -128,11 +135,14 @@ async function createFeaturedEntry(
   event: { slug: string; title: string; endDate: string },
   record: { id: string; analysis_result: string }
 ) {
-  // Parse decision data from analysis result
   const decisionData = parseDecisionJson(record.analysis_result)
+  const mispricingScore = calculateMispricingScore(decisionData)
+
+  if (!decisionData || mispricingScore < 1) {
+    return
+  }
 
   const category = guessCategory(event.title, decisionData)
-  const mispricingScore = calculateMispricingScore(decisionData)
 
   await supabase.from('featured_analyses').upsert({
     event_slug: event.slug,
@@ -149,36 +159,35 @@ async function createFeaturedEntry(
   console.log(`[Trending] Featured: ${event.slug} (mispricing: ${mispricingScore})`)
 }
 
-function parseDecisionJson(result: string): Record<string, unknown> | null {
-  try {
-    const match = result.match(/```json\s*([\s\S]*?)```/)
-    if (match) return JSON.parse(match[1])
-  } catch {}
-  return null
+function extractSlug(url: string): string | null {
+  return extractPolymarketSlug(url)
 }
 
-function calculateMispricingScore(data: Record<string, unknown> | null): number {
-  if (!data?.options || !Array.isArray(data.options)) return 0
-  let maxDiff = 0
-  for (const opt of data.options as Array<{ market?: number; ai?: number }>) {
-    if (typeof opt.market === 'number' && typeof opt.ai === 'number') {
-      maxDiff = Math.max(maxDiff, Math.abs(opt.ai - opt.market))
+async function cleanupFeaturedPool() {
+  const { data: featured, error } = await supabase
+    .from('featured_analyses')
+    .select('*')
+    .eq('is_active', true)
+
+  if (error || !featured) {
+    if (error) {
+      console.error('[Trending] Failed to load featured cleanup pool:', error)
+    }
+    return
+  }
+
+  const now = Date.now()
+
+  for (const item of featured as FeaturedRecord[]) {
+    const expired = isExpiredFeature(item, now)
+    const renderable = isRenderableFeatured(item, now)
+    const latestScore = getFeaturedSignalStrength(item)
+
+    if (!renderable || expired || latestScore < 1) {
+      await supabase
+        .from('featured_analyses')
+        .update({ is_active: false })
+        .eq('id', item.id)
     }
   }
-  return maxDiff
-}
-
-function guessCategory(title: string, data: Record<string, unknown> | null): string {
-  const text = `${title} ${data?.event || ''}`.toLowerCase()
-  if (/bitcoin|btc|eth|crypto|token|defi|solana/.test(text)) return 'crypto'
-  if (/trump|biden|election|president|congress|senate|politi/.test(text)) return 'politics'
-  if (/nba|nfl|soccer|football|tennis|sport|game|match|champion/.test(text)) return 'sports'
-  if (/ai|gpt|openai|claude|model|artificial/.test(text)) return 'ai'
-  if (/gdp|inflation|rate|fed|economic|market|stock/.test(text)) return 'economics'
-  return 'other'
-}
-
-function extractSlug(url: string): string | null {
-  const match = url.match(/polymarket\.com\/(?:[a-z]{2}\/)?event\/([^/\\?#]+)/)
-  return match ? match[1] : null
 }

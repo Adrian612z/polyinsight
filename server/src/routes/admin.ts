@@ -1,19 +1,18 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import jwt from 'jsonwebtoken'
-import { PrivyClient } from '@privy-io/server-auth'
 import { supabase } from '../services/supabase.js'
 import { config } from '../config.js'
 import { grantCredits } from '../services/credit.js'
+import { approveBillingOrder, rejectBillingOrder } from '../services/billing.js'
 
 const router = Router()
-const privy = new PrivyClient(config.privyAppId, config.privyAppSecret)
 
 // ─── Admin Login (no auth required) ────────────────────────────────
 router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body
-    if (!email || !password) {
-      res.status(400).json({ error: 'Email and password required' })
+    if (!password) {
+      res.status(400).json({ error: 'Password required' })
       return
     }
 
@@ -22,14 +21,35 @@ router.post('/login', async (req: Request, res: Response) => {
       return
     }
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, email, display_name, role')
-      .eq('email', email)
-      .eq('role', 'admin')
-      .single()
+    const normalizedEmail = typeof email === 'string' ? email.trim() : ''
+    let user: { id: string; email: string | null; display_name: string | null; role: string } | null = null
 
-    if (error || !user) {
+    if (normalizedEmail) {
+      const { data: matchedUser, error } = await supabase
+        .from('users')
+        .select('id, email, display_name, role')
+        .eq('email', normalizedEmail)
+        .eq('role', 'admin')
+        .maybeSingle()
+
+      if (error) throw error
+      user = matchedUser
+    }
+
+    if (!user) {
+      const { data: adminUsers, error } = await supabase
+        .from('users')
+        .select('id, email, display_name, role')
+        .eq('role', 'admin')
+
+      if (error) throw error
+
+      if ((adminUsers || []).length === 1) {
+        user = adminUsers![0]
+      }
+    }
+
+    if (!user) {
       res.status(401).json({ error: 'Invalid credentials' })
       return
     }
@@ -47,35 +67,31 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 })
 
-// ─── Combined Admin Auth Middleware ────────────────────────────────
+// ─── Admin JWT Auth Middleware ─────────────────────────────────────
 async function adminAuth(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization || ''
 
-  // Admin JWT
   if (authHeader.startsWith('Admin ')) {
     try {
       const decoded = jwt.verify(authHeader.slice(6), config.adminJwtSecret) as { userId: string; role: string }
       if (decoded.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return }
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', decoded.userId)
+        .maybeSingle()
+
+      if (error) throw error
+      if (user?.role !== 'admin') {
+        res.status(403).json({ error: 'Forbidden' })
+        return
+      }
+
       req.userId = decoded.userId
       next()
       return
     } catch {
       res.status(401).json({ error: 'Invalid or expired token' })
-      return
-    }
-  }
-
-  // Privy Bearer token (for main frontend admin pages)
-  if (authHeader.startsWith('Bearer ')) {
-    try {
-      const claims = await privy.verifyAuthToken(authHeader.slice(7))
-      req.userId = claims.userId
-      const { data: user } = await supabase.from('users').select('role').eq('id', req.userId).single()
-      if (user?.role !== 'admin') { res.status(403).json({ error: 'Forbidden' }); return }
-      next()
-      return
-    } catch {
-      res.status(401).json({ error: 'Session expired' })
       return
     }
   }
@@ -109,8 +125,10 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       supabase.from('users').select('id, referred_by'),
     ])
 
-    const sumByType = (types: string[]) =>
-      (creditStats || []).filter(t => types.includes(t.type)).reduce((s, t) => s + Math.abs(t.amount), 0)
+    const sumByType = (types: string[], absolute = true) =>
+      (creditStats || [])
+        .filter(t => types.includes(t.type))
+        .reduce((s, t) => s + (absolute ? Math.abs(t.amount) : t.amount), 0)
 
     // Count unique referrers (users who have invited at least one person)
     const referrerSet = new Set((allUsers || []).filter(u => u.referred_by).map(u => u.referred_by))
@@ -125,7 +143,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
       adminGrant: sumByType(['admin_grant']),
       signupBonus: sumByType(['signup_bonus']),
       analysisSpent: sumByType(['analysis_spend']),
-      referralCommission: sumByType(['referral_commission']),
+      referralCommission: sumByType(['referral_commission'], false),
       // Referral stats
       referralCount: referralCount || 0,
       activeReferrers: referrerSet.size,
@@ -245,7 +263,7 @@ router.get('/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }, { data: referrer }] = await Promise.all([
+    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }] = await Promise.all([
       supabase.from('users').select('*').eq('id', id).single(),
       supabase.from('analysis_records')
         .select('id, event_url, status, credits_charged, created_at')
@@ -262,8 +280,6 @@ router.get('/users/:id', async (req: Request, res: Response) => {
         .select('id, email, display_name, credit_balance, created_at')
         .eq('referred_by', id)
         .order('created_at', { ascending: false }),
-      // Placeholder - will resolve after getting user
-      supabase.from('users').select('id, email, display_name').eq('id', '__placeholder__'),
     ])
 
     if (!user) {
@@ -443,6 +459,133 @@ router.get('/transactions', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Transactions error:', err)
     res.status(500).json({ error: 'Failed to fetch transactions' })
+  }
+})
+
+// ─── Billing Orders Review ────────────────────────────────────────
+router.get('/billing/orders', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100)
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    const status = (req.query.status as string) || ''
+    const planId = (req.query.planId as string) || ''
+
+    let query = supabase
+      .from('billing_orders')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (status) query = query.eq('status', status)
+    if (planId) query = query.eq('plan_id', planId)
+
+    const { data, error, count } = await query.range(from, to)
+
+    if (error) throw error
+
+    res.json({
+      orders: data,
+      total: count,
+      page,
+      pages: Math.ceil((count || 0) / limit),
+    })
+  } catch (err) {
+    console.error('Billing orders error:', err)
+    res.status(500).json({ error: 'Failed to fetch billing orders' })
+  }
+})
+
+router.get('/billing/subscriptions', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 100)
+    const from = (page - 1) * limit
+    const to = from + limit - 1
+    const status = (req.query.status as string) || ''
+    const planId = (req.query.planId as string) || ''
+
+    let query = supabase
+      .from('user_subscriptions')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (status) query = query.eq('status', status)
+    if (planId) query = query.eq('plan_id', planId)
+
+    const { data, error, count } = await query.range(from, to)
+
+    if (error) throw error
+
+    res.json({
+      subscriptions: data,
+      total: count,
+      page,
+      pages: Math.ceil((count || 0) / limit),
+    })
+  } catch (err) {
+    console.error('Billing subscriptions error:', err)
+    res.status(500).json({ error: 'Failed to fetch billing subscriptions' })
+  }
+})
+
+router.post('/billing/orders/:id/approve', async (req: Request, res: Response) => {
+  try {
+    const reviewNote = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote : undefined
+    const result = await approveBillingOrder(req.params.id, req.userId!, reviewNote)
+    res.json(result)
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'ORDER_NOT_FOUND') {
+        res.status(404).json({ error: 'Billing order not found' })
+        return
+      }
+      if (err.message === 'ORDER_ALREADY_APPROVED') {
+        res.status(409).json({ error: 'Billing order already approved' })
+        return
+      }
+      if (err.message === 'ORDER_NOT_APPROVABLE') {
+        res.status(409).json({ error: 'Billing order cannot be approved' })
+        return
+      }
+      if (err.message === 'ORDER_MISSING_TX') {
+        res.status(409).json({ error: 'Billing order has no submitted transaction yet' })
+        return
+      }
+    }
+
+    console.error('Approve billing order error:', err)
+    res.status(500).json({ error: 'Failed to approve billing order' })
+  }
+})
+
+router.post('/billing/orders/:id/reject', async (req: Request, res: Response) => {
+  try {
+    const reviewNote = typeof req.body?.reviewNote === 'string' ? req.body.reviewNote : undefined
+    const order = await rejectBillingOrder(req.params.id, req.userId!, reviewNote)
+    res.json({ order })
+  } catch (err) {
+    if (err instanceof Error) {
+      if (err.message === 'ORDER_NOT_FOUND') {
+        res.status(404).json({ error: 'Billing order not found' })
+        return
+      }
+      if (err.message === 'ORDER_ALREADY_APPROVED') {
+        res.status(409).json({ error: 'Billing order already approved' })
+        return
+      }
+      if (err.message === 'ORDER_ALREADY_REJECTED') {
+        res.status(409).json({ error: 'Billing order already rejected' })
+        return
+      }
+      if (err.message === 'ORDER_NOT_REJECTABLE') {
+        res.status(409).json({ error: 'Billing order cannot be rejected' })
+        return
+      }
+    }
+
+    console.error('Reject billing order error:', err)
+    res.status(500).json({ error: 'Failed to reject billing order' })
   }
 })
 

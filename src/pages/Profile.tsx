@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
-import { api } from '../lib/backend'
-import { Copy, Check, Users, History } from 'lucide-react'
+import { fetchAndCacheProfileData, getCachedProfileData } from '../lib/pageCache'
+import { Copy, Check, Users, History, Coins, Sparkles } from 'lucide-react'
 import { useToast } from '../components/Toast'
 
 interface ReferralInfo {
@@ -23,7 +23,7 @@ interface CreditTx {
 
 export const Profile: React.FC = () => {
   const { t } = useTranslation()
-  const { displayName, creditBalance, referralCode } = useAuthStore()
+  const { displayName, creditBalance, referralCode, privyUserId } = useAuthStore()
   const toast = useToast()
   const typeLabels: Record<string, string> = {
     signup_bonus: t('profile.txType.signup_bonus'),
@@ -39,14 +39,38 @@ export const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([
-      api.getReferralInfo().catch(() => null),
-      api.getCreditHistory().catch(() => ({ transactions: [] })),
-    ]).then(([refInfo, creditData]) => {
-      if (refInfo) setReferralInfo(refInfo)
-      setCreditHistory(creditData?.transactions || [])
-    }).finally(() => setLoading(false))
-  }, [])
+    if (!privyUserId) {
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    const cached = getCachedProfileData(privyUserId)
+
+    if (cached) {
+      setReferralInfo(cached.referralInfo)
+      setCreditHistory(cached.creditHistory)
+      setLoading(false)
+    } else {
+      setLoading(true)
+    }
+
+    void fetchAndCacheProfileData(privyUserId)
+      .then((nextData) => {
+        if (cancelled) return
+        setReferralInfo(nextData.referralInfo)
+        setCreditHistory(nextData.creditHistory)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (cancelled || cached) return
+        setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [privyUserId])
 
   const handleCopyLink = () => {
     const link = referralInfo?.referralLink || `${window.location.origin}/?ref=${referralCode}`
@@ -58,108 +82,138 @@ export const Profile: React.FC = () => {
   }
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8 animate-fade-in-up">
-      <h1 className="text-3xl font-serif text-charcoal">{t('profile.title')}</h1>
-
-      {/* User Info */}
-      <div className="bg-white border border-charcoal/5 rounded-xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm text-charcoal/50">{t('profile.displayName')}</div>
-            <div className="text-lg font-medium text-charcoal">{displayName || t('profile.anonymous')}</div>
+    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in-up">
+      <div className="workspace-frame rounded-[32px] p-6 md:p-8">
+        <div className="section-label mb-3">{t('profile.title')}</div>
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="workspace-subpanel rounded-[26px] p-5">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-terracotta/20 to-[#8b7bff]/20 text-terracotta">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm text-charcoal/48">{t('profile.displayName')}</div>
+                <div className="mt-1 text-2xl font-semibold text-charcoal break-all">{displayName || t('profile.anonymous')}</div>
+              </div>
+            </div>
           </div>
-          <div className="text-right">
-            <div className="text-sm text-charcoal/50">{t('profile.creditBalance')}</div>
-            <div className="text-2xl font-mono font-semibold text-terracotta">
-              {(creditBalance / 100).toFixed(2)}
+          <div className="workspace-subpanel rounded-[26px] p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-terracotta/10 text-terracotta">
+                <Coins className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm text-charcoal/48">{t('profile.creditBalance')}</div>
+                <div className="mt-1 text-3xl font-semibold text-charcoal font-mono">
+                  {(creditBalance / 100).toFixed(2)}
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Referral Section */}
-      <div className="bg-white border border-charcoal/5 rounded-xl p-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-terracotta" />
-          <h2 className="text-lg font-serif text-charcoal">{t('profile.referral.title')}</h2>
-        </div>
-        <p className="text-sm text-charcoal/60">
-          {t('profile.referral.description')}
-        </p>
-
-        {loading ? (
-          <div className="h-12 bg-charcoal/5 rounded-lg animate-pulse" />
-        ) : (
-          <>
-            <div className="flex gap-2">
-              <div className="flex-1 px-4 py-3 bg-warm-white border border-charcoal/10 rounded-lg font-mono text-sm text-charcoal/70 truncate">
-                {referralInfo?.referralLink || `${window.location.origin}/?ref=${referralCode}`}
-              </div>
-              <button
-                onClick={handleCopyLink}
-                className="px-4 py-3 bg-terracotta hover:bg-[#C05638] text-white rounded-lg transition-colors"
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              </button>
+      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)] items-start">
+        {/* Referral Section */}
+        <div className="workspace-frame rounded-[30px] p-6 space-y-4 xl:sticky xl:top-28">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-terracotta/10 text-terracotta">
+              <Users className="w-5 h-5" />
             </div>
+            <div>
+              <div className="section-label">{t('profile.referral.title')}</div>
+            </div>
+          </div>
+          <p className="text-sm leading-6 text-charcoal/60">
+            {t('profile.referral.description')}
+          </p>
 
-            {referralInfo && (
-              <div className="grid grid-cols-2 gap-4 pt-2">
-                <div className="bg-warm-white rounded-lg px-4 py-3">
-                  <div className="text-xs text-charcoal/50">{t('profile.referral.friendsInvited')}</div>
-                  <div className="text-xl font-mono font-semibold text-charcoal">{referralInfo.invitedCount}</div>
+          {loading ? (
+            <div className="space-y-3">
+              <div className="skeleton-surface h-12 rounded-2xl" />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="skeleton-surface h-24 rounded-2xl" />
+                <div className="skeleton-surface h-24 rounded-2xl" />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex gap-2">
+                <div className="workspace-subpanel flex-1 px-4 py-3 rounded-2xl font-mono text-sm text-charcoal/70 truncate">
+                  {referralInfo?.referralLink || `${window.location.origin}/?ref=${referralCode}`}
                 </div>
-                <div className="bg-warm-white rounded-lg px-4 py-3">
-                  <div className="text-xs text-charcoal/50">{t('profile.referral.totalCommission')}</div>
-                  <div className="text-xl font-mono font-semibold text-terracotta">
-                    {(referralInfo.totalCommission / 100).toFixed(2)}
+                <button
+                  onClick={handleCopyLink}
+                  className="theme-contrast-button inline-flex items-center justify-center rounded-2xl px-4 py-3 transition-colors"
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {referralInfo && (
+                <div className="grid grid-cols-2 gap-4 pt-2">
+                  <div className="workspace-subpanel rounded-[22px] px-4 py-4">
+                    <div className="text-xs text-charcoal/50">{t('profile.referral.friendsInvited')}</div>
+                    <div className="mt-2 text-2xl font-mono font-semibold text-charcoal">{referralInfo.invitedCount}</div>
+                  </div>
+                  <div className="workspace-subpanel rounded-[22px] px-4 py-4">
+                    <div className="text-xs text-charcoal/50">{t('profile.referral.totalCommission')}</div>
+                    <div className="mt-2 text-2xl font-mono font-semibold text-terracotta">
+                      {(referralInfo.totalCommission / 100).toFixed(2)}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Credit History */}
-      <div className="bg-white border border-charcoal/5 rounded-xl p-6 space-y-4">
-        <div className="flex items-center gap-2">
-          <History className="w-5 h-5 text-terracotta" />
-          <h2 className="text-lg font-serif text-charcoal">{t('profile.creditHistory.title')}</h2>
+              )}
+            </>
+          )}
         </div>
 
-        {loading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-12 bg-charcoal/5 rounded-lg animate-pulse" />
-            ))}
+        {/* Credit History */}
+        <div className="premium-card rounded-[30px] p-6 space-y-4 flex flex-col h-[min(760px,calc(100vh-210px))]">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#8b7bff]/12 text-[#8b7bff]">
+              <History className="w-5 h-5" />
+            </div>
+            <div className="section-label">{t('profile.creditHistory.title')}</div>
           </div>
-        ) : creditHistory.length === 0 ? (
-          <p className="text-sm text-charcoal/40 py-4 text-center">{t('profile.creditHistory.empty')}</p>
-        ) : (
-          <div className="space-y-1">
-            {creditHistory.map((tx) => (
-              <div key={tx.id} className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-warm-white">
-                <div>
-                  <div className="text-sm font-medium text-charcoal">
-                    {typeLabels[tx.type] || tx.type}
-                  </div>
-                  <div className="text-xs text-charcoal/40">
-                    {tx.description || new Date(tx.created_at).toLocaleDateString()}
+
+          {loading ? (
+            <div className="space-y-3 flex-1">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="skeleton-surface h-16 rounded-2xl" />
+              ))}
+            </div>
+          ) : creditHistory.length === 0 ? (
+            <div className="workspace-subpanel rounded-[22px] py-10 text-center text-sm text-charcoal/40 flex-1 flex items-center justify-center">
+              {t('profile.creditHistory.empty')}
+            </div>
+          ) : (
+            <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
+              {creditHistory.map((tx) => (
+                <div key={tx.id} className="workspace-list-item rounded-[22px] px-4 py-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <div className="text-sm font-semibold text-charcoal">
+                        {typeLabels[tx.type] || tx.type}
+                      </div>
+                      <div className="mt-1 text-xs text-charcoal/40">
+                        {tx.description || new Date(tx.created_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-sm font-mono font-semibold ${tx.amount > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {tx.amount > 0 ? '+' : ''}{(tx.amount / 100).toFixed(2)}
+                      </div>
+                      <div className="text-xs text-charcoal/40 font-mono">
+                        bal: {(tx.balance_after / 100).toFixed(2)}
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className={`text-sm font-mono font-semibold ${tx.amount > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {tx.amount > 0 ? '+' : ''}{(tx.amount / 100).toFixed(2)}
-                  </div>
-                  <div className="text-xs text-charcoal/40 font-mono">
-                    bal: {(tx.balance_after / 100).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
