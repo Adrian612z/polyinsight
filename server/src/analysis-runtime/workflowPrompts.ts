@@ -1355,6 +1355,41 @@ function getStep3StructuredOutputRule(lang: RuntimeLang): string {
 - summary_markdown should be concise and user-facing.`
 }
 
+const STEP5_PATH_PROMPTS: Record<AnalysisPath, string> = {
+  deadline_procedural: `Path-specific final rendering:
+- Keep the final explanation focused on the exact formal act, the cutoff, and the main blocker.
+- Recommendation should explicitly say whether the timeline is the edge.`,
+  linked_binary_ladder: `Path-specific final rendering:
+- Treat every option as a correlated deadline bucket, not as mutually exclusive outcomes.
+- Preserve monotonic consistency across later buckets in the final output.`,
+  numeric_market: `Path-specific final rendering:
+- State the metric, current level or realized amount, and required move to the bucket or threshold.
+- If the structure is a bucket distribution, present buckets in numeric order.`,
+  competitive_multi_outcome: `Path-specific final rendering:
+- Present the reportable contenders or scenarios as one coherent field.
+- Keep the final distribution close to 100 when the field is mutually exclusive.`,
+  sports_competition: `Path-specific final rendering:
+- Follow sports_profile when describing the competition structure.
+- Recommendation should identify the specific team, player, or market outcome with edge, or say no clear edge.`,
+  weather_station_bucket: `Path-specific final rendering:
+- Define the exact settlement variable first: station, local day, max or min, unit, and bucket edges.
+- Recommendation should explain which temperature bucket or side has edge and the main settlement-source risk.`,
+  weather_accumulation_bucket: `Path-specific final rendering:
+- Separate realized accumulation from the remaining forecast window in the explanation.
+- Respect bucket edges and any exact-boundary settlement rule in the final recommendation.`,
+  weather_first_occurrence_race: `Path-specific final rendering:
+- Explain the race structure, locations, qualifying threshold, and tie-break rule clearly.
+- Recommendation should identify the leading location or explicitly say the race is too close.`,
+  tropical_cyclone_event: `Path-specific final rendering:
+- Distinguish official designation risk from general storm-formation discussion.
+- Recommendation should explain whether the edge comes from official timing, classification, or count distribution.`,
+  climate_index_numeric: `Path-specific final rendering:
+- Anchor the final explanation on the official dataset, cadence, and bucket or threshold definition.
+- Recommendation should identify the dataset bucket with edge or explicitly say the long-range uncertainty is too wide.`,
+  generic_fallback: `Path-specific final rendering:
+- Keep the final answer conservative and emphasize uncertainty when the structure is weakly specified.`,
+}
+
 function getStructuredProbabilityAuditHint(lang: RuntimeLang): string {
   return lang === 'zh'
     ? `Source 2 format note:
@@ -1497,10 +1532,11 @@ export function getStep4SystemPrompt(analysisPath: AnalysisPath, sources: Prompt
   return sources.lang === 'zh' ? `${combined}\n\n${ZH_ANALYSIS_LANGUAGE_REQUIREMENTS}` : combined
 }
 
-export function getStep5SystemPrompt(sources: PromptSources) {
+export function getStep5SystemPrompt(analysisPath: AnalysisPath, sources: PromptSources) {
   const prompt = sources.lang === 'zh' ? STEP5_SYSTEM_PROMPT_ZH : STEP5_SYSTEM_PROMPT
   return [
     prompt.replace('{{DATETIME}}', sources.nowDateTime),
+    STEP5_PATH_PROMPTS[analysisPath] || STEP5_PATH_PROMPTS.generic_fallback,
     getDeadlineDisciplineBlock(sources),
     getMarketComparisonDiscipline(sources.lang),
   ].join('\n\n')

@@ -4,6 +4,7 @@ import { supabase } from '../services/supabase.js'
 import { config } from '../config.js'
 import { grantCredits } from '../services/credit.js'
 import { approveBillingOrder, rejectBillingOrder } from '../services/billing.js'
+import { buildAnalysisFlowView } from '../services/analysisFlow.js'
 
 const router = Router()
 
@@ -422,7 +423,23 @@ router.get('/analyses/:id', async (req: Request, res: Response) => {
       .eq('id', data.user_id)
       .single()
 
-    res.json({ analysis: data, user })
+    const { data: jobs, error: jobsError } = await supabase
+      .from('analysis_jobs')
+      .select('id, status, attempts, max_attempts, last_error, locked_by, locked_at, started_at, finished_at, created_at, updated_at')
+      .eq('analysis_record_id', data.id)
+      .order('created_at', { ascending: false })
+
+    if (jobsError) throw jobsError
+
+    const latestJob = Array.isArray(jobs) && jobs.length > 0 ? jobs[0] : null
+    const flow = buildAnalysisFlowView({
+      recordStatus: data.status,
+      analysisResult: data.analysis_result,
+      jobStatus: latestJob?.status || null,
+      jobError: latestJob?.last_error || null,
+    })
+
+    res.json({ analysis: data, user, latestJob, jobs: jobs || [], flow })
   } catch (err) {
     console.error('Analysis detail error:', err)
     res.status(500).json({ error: 'Failed to fetch analysis detail' })

@@ -146,7 +146,7 @@ export const Layout: React.FC = () => {
                       className="theme-surface-button inline-flex max-w-[220px] items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold transition"
                     >
                       <User size={15} />
-                      <span className="truncate">{displayName}</span>
+                      <span>{i18n.language === 'zh' ? '个人主页' : 'Profile'}</span>
                     </Link>
                   )}
 

@@ -1,4 +1,5 @@
 const API_BASE = '/api'
+import type { AnalysisFlowView } from './analysisFlow'
 
 // Module-scoped token storage (not exposed on window)
 let _privyToken: string | null = null
@@ -96,6 +97,9 @@ export const api = {
   pollAnalysis: (recordId: string) =>
     apiRequest(`/analysis/${recordId}/poll`),
 
+  getAnalysisDetail: (recordId: string) =>
+    apiRequest(`/analysis/${recordId}/detail`),
+
   cancelAnalysis: (recordId: string) =>
     apiRequest(`/analysis/${recordId}/cancel`, { method: 'POST' }),
 
@@ -165,4 +169,11 @@ export const api = {
     amount: string
     billing_order_id?: string
   }) => apiRequest('/transactions', { method: 'POST', body: JSON.stringify(body) }),
+}
+
+export type AnalysisPollResponse = {
+  status: 'pending' | 'completed' | 'failed' | 'cancelled'
+  analysis_result: string | null
+  error?: string | null
+  flow?: AnalysisFlowView | null
 }

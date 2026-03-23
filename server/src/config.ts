@@ -59,6 +59,7 @@ export const config = {
   analysisWorkerPollMs: parseInt(process.env.ANALYSIS_WORKER_POLL_MS || '2000'),
   analysisWorkerHeartbeatMs: parseInt(process.env.ANALYSIS_WORKER_HEARTBEAT_MS || '15000'),
   analysisJobLockMs: parseInt(process.env.ANALYSIS_JOB_LOCK_MS || String(30 * 60 * 1000)),
+  analysisJobMaxRuntimeMs: parseInt(process.env.ANALYSIS_JOB_MAX_RUNTIME_MS || String(20 * 60 * 1000)),
   analysisMaxActiveJobsPerUser: parseInt(process.env.ANALYSIS_MAX_ACTIVE_JOBS_PER_USER || '3'),
 
   analysisCodeApiKey: optionalEnv('ANALYSIS_CODE_API_KEY'),

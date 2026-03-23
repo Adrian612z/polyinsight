@@ -7,6 +7,7 @@ import {
   summarizeWeatherRoutingReason,
   type WeatherAnalysisPath,
 } from './weather.js'
+import { fetchSourceLoose, type RetrievalFetchResult } from './retrievalFetch.js'
 
 export interface PolymarketTag {
   slug?: string
@@ -1160,31 +1161,40 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
 }
 
 async function fetchRetrievalPack(plan: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const [gdeltRaw, googleRaw] = await Promise.all([
-    fetchJsonLoose(String(plan.news_url || '')),
-    fetchJsonLoose(String(plan.news_url_secondary || '')),
+  const [gdeltFetch, googleFetch] = await Promise.all([
+    fetchSourceLoose(String(plan.news_url || ''), 'gdelt_news'),
+    fetchSourceLoose(String(plan.news_url_secondary || ''), 'google_news_rss'),
   ])
 
   const newsRaw = {
     news_sources: {
-      gdelt: gdeltRaw,
-      google_news_rss: googleRaw,
+      gdelt: gdeltFetch.data,
+      google_news_rss: googleFetch.data,
     },
+    fetches: [gdeltFetch, googleFetch],
   }
 
   let structuredRaw: Record<string, unknown>
+  let structuredFetches: RetrievalFetchResult[] = []
   if (plan.structured_provider === 'coingecko') {
-    structuredRaw = (await fetchJsonLoose(String(plan.structured_url || ''))) || {}
+    const fetchResult = await fetchSourceLoose(String(plan.structured_url || ''), 'coingecko_snapshot')
+    structuredRaw = (fetchResult.data as Record<string, unknown>) || {}
+    structuredFetches = [fetchResult]
   } else if (plan.structured_provider === 'sportsdb') {
-    const teamLookup = (await fetchJsonLoose(String(plan.structured_url || ''))) || {}
+    const teamLookupFetch = await fetchSourceLoose(String(plan.structured_url || ''), 'sportsdb_team_lookup')
+    const teamLookup = teamLookupFetch.data || {}
     const sportsSecondaryPlan = buildSportsSecondaryPlan(plan, teamLookup)
-    const [espnLeagueTeams, standings, fixtures] = await Promise.all([
-      fetchJsonLoose(String(sportsSecondaryPlan.espn_teams_url || '')),
-      fetchJsonLoose(String(sportsSecondaryPlan.standings_url || '')),
-      fetchJsonLoose(String(sportsSecondaryPlan.fixtures_url || '')),
+    const [espnLeagueTeamsFetch, standingsFetch, fixturesFetch] = await Promise.all([
+      fetchSourceLoose(String(sportsSecondaryPlan.espn_teams_url || ''), 'espn_league_teams'),
+      fetchSourceLoose(String(sportsSecondaryPlan.standings_url || ''), 'sportsdb_standings'),
+      fetchSourceLoose(String(sportsSecondaryPlan.fixtures_url || ''), 'sportsdb_fixtures'),
     ])
+    const espnLeagueTeams = espnLeagueTeamsFetch.data
+    const standings = standingsFetch.data
+    const fixtures = fixturesFetch.data
     const espnTeamPlan = buildEspnTeamPlan(sportsSecondaryPlan, espnLeagueTeams)
-    const espnTeamSchedule = (await fetchJsonLoose(String(espnTeamPlan.espn_schedule_url || ''))) || null
+    const espnTeamScheduleFetch = await fetchSourceLoose(String(espnTeamPlan.espn_schedule_url || ''), 'espn_team_schedule')
+    const espnTeamSchedule = espnTeamScheduleFetch.data || null
 
     structuredRaw = {
       provider: 'sportsdb',
@@ -1195,8 +1205,11 @@ async function fetchRetrievalPack(plan: Record<string, unknown>): Promise<Record
       standings,
       fixtures,
     }
+    structuredFetches = [teamLookupFetch, espnLeagueTeamsFetch, standingsFetch, fixturesFetch, espnTeamScheduleFetch]
   } else if (plan.structured_provider === 'weather_official') {
-    structuredRaw = await fetchWeatherStructuredData(plan)
+    const weatherStructured = await fetchWeatherStructuredData(plan)
+    structuredRaw = weatherStructured.data
+    structuredFetches = weatherStructured.fetches
   } else {
     structuredRaw = {
       provider: 'none',
@@ -1204,7 +1217,7 @@ async function fetchRetrievalPack(plan: Record<string, unknown>): Promise<Record
     }
   }
 
-  return assembleRetrievalPack(plan, newsRaw, structuredRaw)
+  return assembleRetrievalPack(plan, newsRaw, structuredRaw, structuredFetches)
 }
 
 async function fetchWeatherStructuredData(plan: Record<string, unknown>) {
@@ -1228,17 +1241,21 @@ async function fetchWeatherStructuredData(plan: Record<string, unknown>) {
   const latestObservationUrl = String(weatherContext.station_observation_url || '')
   const pointsUrl = String(weatherContext.points_url || '')
 
-  const [latestObservationRaw, pointsRaw] = await Promise.all([
-    fetchJsonLoose(latestObservationUrl),
-    fetchJsonLoose(pointsUrl),
+  const [latestObservationFetch, pointsFetch] = await Promise.all([
+    fetchSourceLoose(latestObservationUrl, 'weather_latest_observation'),
+    fetchSourceLoose(pointsUrl, 'weather_points'),
   ])
+  const latestObservationRaw = latestObservationFetch.data
+  const pointsRaw = pointsFetch.data
 
   const forecastUrl = String(pointsRaw?.properties?.forecast || '')
   const forecastHourlyUrl = String(pointsRaw?.properties?.forecastHourly || '')
-  const [forecastRaw, forecastHourlyRaw] = await Promise.all([
-    fetchJsonLoose(forecastUrl),
-    fetchJsonLoose(forecastHourlyUrl),
+  const [forecastFetch, forecastHourlyFetch] = await Promise.all([
+    fetchSourceLoose(forecastUrl, 'weather_forecast'),
+    fetchSourceLoose(forecastHourlyUrl, 'weather_forecast_hourly'),
   ])
+  const forecastRaw = forecastFetch.data
+  const forecastHourlyRaw = forecastHourlyFetch.data
 
   function normalizeObservation(raw: any) {
     const properties = raw?.properties || {}
@@ -1280,29 +1297,32 @@ async function fetchWeatherStructuredData(plan: Record<string, unknown>) {
   }
 
   return {
-    provider: 'weather_official',
-    status:
-      latestObservationRaw || pointsRaw || forecastRaw || forecastHourlyRaw || resolutionSpec || weatherProfile
-        ? 'ok'
-        : 'empty',
-    resolution_spec: resolutionSpec,
-    weather_profile: weatherProfile,
-    settlement_risk: settlementRisk,
-    official_links: Array.isArray(weatherContext.official_links) ? weatherContext.official_links : [],
-    preferred_products: Array.isArray(weatherContext.preferred_products) ? weatherContext.preferred_products : [],
-    ensemble_sources: Array.isArray(weatherContext.ensemble_sources) ? weatherContext.ensemble_sources : [],
-    latest_observation: normalizeObservation(latestObservationRaw),
-    forecast_periods: normalizeForecast(forecastRaw),
-    forecast_hourly_periods: normalizeForecastHourly(forecastHourlyRaw),
-    points_metadata: pointsRaw?.properties
-      ? {
-          grid_id: pointsRaw.properties.gridId || null,
-          grid_x: pointsRaw.properties.gridX ?? null,
-          grid_y: pointsRaw.properties.gridY ?? null,
-          forecast_zone: pointsRaw.properties.forecastZone || null,
-          county: pointsRaw.properties.county || null,
-        }
-      : null,
+    data: {
+      provider: 'weather_official',
+      status:
+        latestObservationFetch.ok || pointsFetch.ok || forecastFetch.ok || forecastHourlyFetch.ok || resolutionSpec || weatherProfile
+          ? 'ok'
+          : 'empty',
+      resolution_spec: resolutionSpec,
+      weather_profile: weatherProfile,
+      settlement_risk: settlementRisk,
+      official_links: Array.isArray(weatherContext.official_links) ? weatherContext.official_links : [],
+      preferred_products: Array.isArray(weatherContext.preferred_products) ? weatherContext.preferred_products : [],
+      ensemble_sources: Array.isArray(weatherContext.ensemble_sources) ? weatherContext.ensemble_sources : [],
+      latest_observation: normalizeObservation(latestObservationRaw),
+      forecast_periods: normalizeForecast(forecastRaw),
+      forecast_hourly_periods: normalizeForecastHourly(forecastHourlyRaw),
+      points_metadata: pointsRaw?.properties
+        ? {
+            grid_id: pointsRaw.properties.gridId || null,
+            grid_x: pointsRaw.properties.gridX ?? null,
+            grid_y: pointsRaw.properties.gridY ?? null,
+            forecast_zone: pointsRaw.properties.forecastZone || null,
+            county: pointsRaw.properties.county || null,
+          }
+        : null,
+    },
+    fetches: [latestObservationFetch, pointsFetch, forecastFetch, forecastHourlyFetch],
   }
 }
 
@@ -1429,7 +1449,12 @@ function buildEspnTeamPlan(secondaryPlan: Record<string, unknown>, teamsRaw: any
   }
 }
 
-function assembleRetrievalPack(plan: Record<string, unknown>, newsRaw: any, structuredRaw: any) {
+function assembleRetrievalPack(
+  plan: Record<string, unknown>,
+  newsRaw: any,
+  structuredRaw: any,
+  structuredFetches: RetrievalFetchResult[]
+) {
   function normalizeGdelt(raw: any) {
     const articles = Array.isArray(raw?.articles) ? raw.articles : []
     const rateLimited = typeof raw === 'string' && raw.includes('Please limit requests')
@@ -1466,6 +1491,35 @@ function assembleRetrievalPack(plan: Record<string, unknown>, newsRaw: any, stru
       merged.push(article)
     }
     return merged.slice(0, 8)
+  }
+
+  function summarizeFetches(fetches: RetrievalFetchResult[]) {
+    const total = fetches.length
+    const ok = fetches.filter((entry) => entry.ok).length
+    const timedOut = fetches.filter((entry) => entry.timed_out).length
+    const failed = total - ok
+    const overall =
+      total === 0 ? 'not_requested' :
+      ok === total ? 'good' :
+      ok > 0 ? 'partial' :
+      'degraded'
+
+    return {
+      overall,
+      total,
+      ok,
+      failed,
+      timed_out: timedOut,
+      entries: fetches.map((entry) => ({
+        label: entry.label,
+        url: entry.url,
+        ok: entry.ok,
+        status: entry.status,
+        timed_out: entry.timed_out,
+        content_type: entry.content_type,
+        error: entry.error,
+      })),
+    }
   }
 
   function normalizeEspnFixtures(raw: any, espnTeamPlan: any) {
@@ -1636,6 +1690,9 @@ function assembleRetrievalPack(plan: Record<string, unknown>, newsRaw: any, stru
   const gdelt = normalizeGdelt(newsRaw?.news_sources?.gdelt)
   const google = normalizeGoogle(newsRaw?.news_sources?.google_news_rss)
   const mergedNews = mergeNews(gdelt.articles, google)
+  const newsFetches = Array.isArray(newsRaw?.fetches) ? (newsRaw.fetches as RetrievalFetchResult[]) : []
+  const newsHealth = summarizeFetches(newsFetches)
+  const structuredHealth = summarizeFetches(structuredFetches)
 
   return {
     source_policy: Array.isArray(plan.source_policy) ? plan.source_policy : [],
@@ -1644,31 +1701,25 @@ function assembleRetrievalPack(plan: Record<string, unknown>, newsRaw: any, stru
     source_recency_rule: plan.source_recency_rule || null,
     search_queries: Array.isArray(plan.search_queries) ? plan.search_queries : [],
     coverage_warning: plan.coverage_warning || null,
+    source_health: {
+      news: newsHealth,
+      structured: structuredHealth,
+      overall:
+        newsHealth.overall === 'good' && (structuredHealth.overall === 'good' || structuredHealth.overall === 'not_requested')
+          ? 'good'
+          : newsHealth.overall === 'degraded' && structuredHealth.overall === 'degraded'
+            ? 'degraded'
+            : 'partial',
+    },
     news_pack: {
       provider: 'hybrid_news_pack',
       query: plan.news_query || null,
       gdelt_rate_limited: gdelt.rate_limited,
       google_rss_count: google.length,
       articles: mergedNews,
+      fetches: newsHealth.entries,
     },
     structured_pack: normalizeStructured(structuredRaw, String(plan.structured_provider || 'none')),
-  }
-}
-
-async function fetchJsonLoose(url: string): Promise<any> {
-  if (!url) return null
-
-  try {
-    const response = await fetch(url)
-    const text = await response.text()
-    if (!text) return null
-    try {
-      return JSON.parse(text)
-    } catch {
-      return text
-    }
-  } catch {
-    return null
   }
 }
 

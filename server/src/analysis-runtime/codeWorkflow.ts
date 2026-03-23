@@ -59,6 +59,13 @@ interface StructuredProbabilityEstimate {
   summary_markdown: string
 }
 
+class StructuredOutputValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StructuredOutputValidationError'
+  }
+}
+
 interface SemaphoreWaiter {
   resolve: () => void
   reject: (error: Error) => void
@@ -139,8 +146,15 @@ export async function runCodeAnalysisPipeline(
     hooks,
   })
 
-  await markAnalysisRecordCompleted(job.analysis_record_id, result.finalResult)
-  return result.finalResult
+  const storedFinalResult = serializeRuntimeSteps([
+    ['info', result.info],
+    ['probability', renderProbabilityStep(result.probability, job.lang)],
+    ['risk', result.risk],
+    ['report', result.finalResult],
+  ])
+
+  await markAnalysisRecordCompleted(job.analysis_record_id, storedFinalResult)
+  return storedFinalResult
 }
 
 export async function runStandaloneCodeAnalysis(input: {
@@ -238,7 +252,7 @@ export async function runStandaloneCodeAnalysis(input: {
   ensureRuntimeActive(input.hooks)
   const finalResult = await requestModelText(
     config.analysisCodeBaseUrl.replace(/\/+$/, ''),
-    getStep5SystemPrompt(promptSources),
+    getStep5SystemPrompt(toAnalysisPath(context.router.analysis_path), promptSources),
     buildStep5Prompt({ ...promptSources, step2Output: info, step3Output: probabilityJson, step4Output: risk }),
     {
       model: config.analysisCodeReportModel,
@@ -250,6 +264,19 @@ export async function runStandaloneCodeAnalysis(input: {
     input.hooks
   )
 
+  if (input.recordId) {
+    await persistStep(
+      input.recordId,
+      [
+        ['info', info],
+        ['probability', probabilityStep],
+        ['risk', risk],
+        ['report', finalResult],
+      ],
+      input.hooks
+    )
+  }
+
   return { info, probability, risk, finalResult }
 }
 
@@ -259,14 +286,18 @@ async function persistStep(
   hooks: RuntimeHooks = {}
 ): Promise<void> {
   ensureRuntimeActive(hooks)
-  const partial = steps
-    .map(([step, content]) => `<!--STEP:${step}-->\n${content.trim()}`)
-    .join(STEP_SEPARATOR)
+  const partial = serializeRuntimeSteps(steps)
 
   await updateAnalysisPartialResult(recordId, partial)
   if (hooks.onProgress) {
     await hooks.onProgress(partial)
   }
+}
+
+function serializeRuntimeSteps(steps: RuntimeStep[]): string {
+  return steps
+    .map(([step, content]) => `<!--STEP:${step}-->\n${content.trim()}`)
+    .join(STEP_SEPARATOR)
 }
 
 async function fetchEventBySlug(slug: string, signal?: AbortSignal): Promise<PolymarketEvent> {
@@ -428,28 +459,50 @@ function normalizeProbabilityOption(
   expectedMarket: number,
   lang: RuntimeLang
 ): ProbabilityEstimateOption {
+  if (!raw) {
+    throw new StructuredOutputValidationError(`Structured probability output is missing option: ${expectedName}`)
+  }
+
   const market = roundToTenth(expectedMarket)
-  const baseMid = clampPercent(toNumber(raw?.fair_mid, toNumber((raw as Record<string, unknown> | undefined)?.ai, market)))
-  const baseLow = clampPercent(toNumber(raw?.fair_low, Math.max(0, baseMid - 6)))
-  const baseHigh = clampPercent(toNumber(raw?.fair_high, Math.min(100, baseMid + 6)))
-  const ordered = [baseLow, baseMid, baseHigh].sort((a, b) => a - b)
+  const baseMid = readRequiredPercentField(raw, ['fair_mid', 'ai'], expectedName, 'fair_mid')
+  const baseLow = readRequiredPercentField(raw, ['fair_low'], expectedName, 'fair_low')
+  const baseHigh = readRequiredPercentField(raw, ['fair_high'], expectedName, 'fair_high')
+
+  if (!(baseLow <= baseMid && baseMid <= baseHigh)) {
+    throw new StructuredOutputValidationError(
+      `Structured probability output has invalid range ordering for ${expectedName}: low=${baseLow}, mid=${baseMid}, high=${baseHigh}`
+    )
+  }
+
+  const confidence = normalizeConfidence(raw?.confidence)
+  if (!confidence) {
+    throw new StructuredOutputValidationError(`Structured probability output is missing or invalid confidence for ${expectedName}`)
+  }
+
+  const rationale =
+    typeof raw?.rationale === 'string' && raw.rationale.trim()
+      ? raw.rationale.trim()
+      : null
+  if (!rationale) {
+    throw new StructuredOutputValidationError(`Structured probability output is missing rationale for ${expectedName}`)
+  }
+
+  const sources = Array.isArray(raw?.sources)
+    ? raw.sources.map((value) => String(value).trim()).filter(Boolean).slice(0, 6)
+    : []
+  if (sources.length === 0) {
+    throw new StructuredOutputValidationError(`Structured probability output is missing sources for ${expectedName}`)
+  }
 
   return {
     name: expectedName,
     market,
-    fair_low: roundToTenth(ordered[0]),
-    fair_mid: roundToTenth(ordered[1]),
-    fair_high: roundToTenth(ordered[2]),
-    confidence: normalizeConfidence(raw?.confidence),
-    sources: Array.isArray(raw?.sources)
-      ? raw.sources.map((value) => String(value).trim()).filter(Boolean).slice(0, 6)
-      : [],
-    rationale:
-      typeof raw?.rationale === 'string' && raw.rationale.trim()
-        ? raw.rationale.trim()
-        : lang === 'zh'
-          ? '模型未提供充分理由，已回退到更保守的默认区间。'
-          : 'The model did not provide a strong rationale, so a conservative fallback range was used.',
+    fair_low: roundToTenth(baseLow),
+    fair_mid: roundToTenth(baseMid),
+    fair_high: roundToTenth(baseHigh),
+    confidence,
+    sources,
+    rationale,
   }
 }
 
@@ -548,7 +601,7 @@ function normalizeOptionKey(value: string): string {
   return value.replace(/\s+/g, ' ').replace(/[–—]/g, '-').trim().toLowerCase()
 }
 
-function normalizeConfidence(value: unknown): ProbabilityEstimateOption['confidence'] {
+function normalizeConfidence(value: unknown): ProbabilityEstimateOption['confidence'] | null {
   if (typeof value === 'number') {
     if (value >= 0.75) return 'high'
     if (value >= 0.45) return 'medium'
@@ -558,7 +611,25 @@ function normalizeConfidence(value: unknown): ProbabilityEstimateOption['confide
     const normalized = value.trim().toLowerCase()
     if (normalized === 'high' || normalized === 'medium' || normalized === 'low') return normalized
   }
-  return 'medium'
+  return null
+}
+
+function readRequiredPercentField(
+  raw: Record<string, unknown>,
+  keys: string[],
+  optionName: string,
+  fieldLabel: string
+): number {
+  for (const key of keys) {
+    const next = Number(raw[key])
+    if (Number.isFinite(next)) {
+      return clampPercent(next)
+    }
+  }
+
+  throw new StructuredOutputValidationError(
+    `Structured probability output is missing numeric ${fieldLabel} for ${optionName}`
+  )
 }
 
 function toNumber(value: unknown, fallback: number): number {

@@ -41,7 +41,7 @@ export function startAnalysisWorker() {
   }, 60_000)
 
   console.log(
-    `[AnalysisWorker] Started with engine=${config.analysisEngine}, concurrency=${config.analysisWorkerConcurrency}, modelRequests=${config.analysisCodeRequestConcurrency}, poll=${config.analysisWorkerPollMs}ms`
+    `[AnalysisWorker] Started with engine=${config.analysisEngine}, concurrency=${config.analysisWorkerConcurrency}, modelRequests=${config.analysisCodeRequestConcurrency}, poll=${config.analysisWorkerPollMs}ms, maxRuntime=${config.analysisJobMaxRuntimeMs}ms`
   )
 }
 
@@ -85,12 +85,16 @@ async function runJob(job: AnalysisJobRecord) {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
 
-    if (lease.lost) {
+    if (lease.lostOwnership) {
       console.warn(`[AnalysisWorker] Job ${job.id} stopped: ${message}`)
       return
     }
 
-    console.error(`[AnalysisWorker] Job ${job.id} failed:`, message)
+    if (lease.timedOut) {
+      console.error(`[AnalysisWorker] Job ${job.id} timed out:`, message)
+    } else {
+      console.error(`[AnalysisWorker] Job ${job.id} failed:`, message)
+    }
 
     if (job.attempts < job.max_attempts) {
       const requeued = await requeueAnalysisJob(job.id, message, workerId)
@@ -114,13 +118,14 @@ async function runJob(job: AnalysisJobRecord) {
 
 function startJobLease(jobId: string) {
   const abortController = new AbortController()
-  let lost = false
+  let lostOwnership = false
+  let timedOut = false
 
-  const timer = setInterval(() => {
+  const heartbeatTimer = setInterval(() => {
     void heartbeatAnalysisJob(jobId, workerId)
       .then((alive) => {
-        if (alive || lost) return
-        lost = true
+        if (alive || lostOwnership || timedOut) return
+        lostOwnership = true
         abortController.abort(new Error('Analysis job no longer active'))
       })
       .catch((err) => {
@@ -128,22 +133,37 @@ function startJobLease(jobId: string) {
       })
   }, config.analysisWorkerHeartbeatMs)
 
-  timer.unref?.()
+  heartbeatTimer.unref?.()
+
+  const runtimeTimer = setTimeout(() => {
+    if (lostOwnership || timedOut || abortController.signal.aborted) return
+    timedOut = true
+    abortController.abort(new Error(`Analysis job exceeded max runtime (${config.analysisJobMaxRuntimeMs}ms)`))
+  }, config.analysisJobMaxRuntimeMs)
+
+  runtimeTimer.unref?.()
 
   return {
     signal: abortController.signal,
     get lost() {
-      return lost || abortController.signal.aborted
+      return lostOwnership || timedOut || abortController.signal.aborted
+    },
+    get lostOwnership() {
+      return lostOwnership
+    },
+    get timedOut() {
+      return timedOut
     },
     assertActive() {
-      if (lost || abortController.signal.aborted) {
+      if (lostOwnership || timedOut || abortController.signal.aborted) {
         throw abortController.signal.reason instanceof Error
           ? abortController.signal.reason
           : new Error('Analysis job no longer active')
       }
     },
     stop() {
-      clearInterval(timer)
+      clearInterval(heartbeatTimer)
+      clearTimeout(runtimeTimer)
     },
   }
 }

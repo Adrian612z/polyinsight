@@ -10,6 +10,8 @@ import { DecisionCard, parseResult, riskConfig } from '../components/DecisionCar
 import { SkeletonList } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { formatPolymarketSlugLabel } from '../lib/polymarket'
+import { AnalysisFlowPanel } from '../components/AnalysisFlowPanel'
+import type { AnalysisFlowView } from '../lib/analysisFlow'
 
 interface AnalysisRecord {
   id: string
@@ -17,6 +19,12 @@ interface AnalysisRecord {
   analysis_result: string | null
   status: 'pending' | 'completed' | 'failed'
   created_at: string
+}
+
+interface AnalysisDetailRecord extends AnalysisRecord {
+  updated_at?: string
+  error?: string | null
+  flow?: AnalysisFlowView | null
 }
 
 const PAGE_SIZE = 10
@@ -36,6 +44,8 @@ export const History: React.FC = () => {
   // Re-fetch when any session completes
   const completedCount = useAnalysisStore((s) => Object.values(s.sessions).filter(ss => ss.status === 'completed').length)
   const [selectedRecord, setSelectedRecord] = useState<AnalysisRecord | null>(null)
+  const [selectedDetail, setSelectedDetail] = useState<AnalysisDetailRecord | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const toast = useToast()
 
@@ -112,6 +122,42 @@ export const History: React.FC = () => {
       cancelled = true
     }
   }, [privyUserId, currentPage, completedCount])
+
+  useEffect(() => {
+    if (!selectedRecord) {
+      setSelectedDetail(null)
+      return
+    }
+
+    let cancelled = false
+    setDetailLoading(true)
+
+    api.getAnalysisDetail(selectedRecord.id)
+      .then((data) => {
+        if (cancelled) return
+        setSelectedDetail({
+          ...selectedRecord,
+          ...(data.analysis || {}),
+          error: data.error || null,
+          flow: data.flow || null,
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSelectedDetail({
+          ...selectedRecord,
+          error: null,
+          flow: null,
+        })
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [selectedRecord])
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -252,8 +298,15 @@ export const History: React.FC = () => {
             </div>
             
             <div className="p-6 md:p-8 overflow-y-auto flex-1">
-              {selectedRecord.analysis_result ? (
-                <DecisionCard result={selectedRecord.analysis_result} eventUrl={selectedRecord.event_url} />
+              {detailLoading ? (
+                <SkeletonList count={3} />
+              ) : selectedDetail?.analysis_result ? (
+                <div className="space-y-6">
+                  <AnalysisFlowPanel flow={selectedDetail.flow || null} title={t('history.report.title')} />
+                  <DecisionCard embedded result={selectedDetail.analysis_result} eventUrl={selectedRecord.event_url} />
+                </div>
+              ) : selectedDetail?.flow ? (
+                <AnalysisFlowPanel flow={selectedDetail.flow} title={t('history.report.title')} />
               ) : (
                 <div className="workspace-subpanel rounded-[24px] flex flex-col items-center justify-center h-full text-charcoal/30 py-16">
                   <Clock className="w-12 h-12 mb-3 opacity-20" />
@@ -316,8 +369,15 @@ export const History: React.FC = () => {
             </div>
 
             <div className="p-5 overflow-y-auto flex-1 min-h-0">
-              {selectedRecord.analysis_result ? (
-                <DecisionCard result={selectedRecord.analysis_result} eventUrl={selectedRecord.event_url} />
+              {detailLoading ? (
+                <SkeletonList count={3} />
+              ) : selectedDetail?.analysis_result ? (
+                <div className="space-y-5">
+                  <AnalysisFlowPanel flow={selectedDetail.flow || null} title={t('history.report.title')} />
+                  <DecisionCard embedded result={selectedDetail.analysis_result} eventUrl={selectedRecord.event_url} />
+                </div>
+              ) : selectedDetail?.flow ? (
+                <AnalysisFlowPanel flow={selectedDetail.flow} title={t('history.report.title')} />
               ) : (
                 <div className="workspace-subpanel rounded-[24px] flex flex-col items-center justify-center h-full text-charcoal/30 py-16">
                   <Clock className="w-12 h-12 mb-3 opacity-20" />

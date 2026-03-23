@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api } from '../lib/backend'
 import { useAuthStore } from './authStore'
 import i18n from '../i18n'
+import type { AnalysisFlowView } from '../lib/analysisFlow'
 
 // --- Types ---
 
@@ -14,6 +15,7 @@ export interface AnalysisSession {
   result: string | null
   partialResult: string | null
   error: string | null
+  flow: AnalysisFlowView | null
   canRetry: boolean
   startedAt: number
   isOptimistic?: boolean
@@ -104,6 +106,7 @@ function startPollingForSession(recordId: string) {
             ...session,
             status: 'failed' as const,
             error: getTimeoutMessage(session.partialResult),
+            flow: session.flow,
             canRetry: true,
           },
         },
@@ -125,6 +128,8 @@ function startPollingForSession(recordId: string) {
               status: 'completed' as const,
               result: data.analysis_result,
               partialResult: null,
+              error: data.error || null,
+              flow: data.flow || session.flow,
             },
           },
         })
@@ -139,7 +144,8 @@ function startPollingForSession(recordId: string) {
             [recordId]: {
               ...session,
               status: 'failed' as const,
-              error: getTimeoutMessage(session.partialResult),
+              error: data.error || getTimeoutMessage(session.partialResult),
+              flow: data.flow || session.flow,
               canRetry: true,
             },
           },
@@ -155,7 +161,8 @@ function startPollingForSession(recordId: string) {
             [recordId]: {
               ...session,
               status: 'cancelled' as const,
-              error: null,
+              error: data.error || null,
+              flow: data.flow || session.flow,
               canRetry: true,
             },
           },
@@ -172,7 +179,23 @@ function startPollingForSession(recordId: string) {
         useAnalysisStore.setState({
           sessions: {
             ...useAnalysisStore.getState().sessions,
-            [recordId]: { ...useAnalysisStore.getState().sessions[recordId], partialResult: data.analysis_result },
+            [recordId]: {
+              ...useAnalysisStore.getState().sessions[recordId],
+              partialResult: data.analysis_result,
+              error: data.error || null,
+              flow: data.flow || useAnalysisStore.getState().sessions[recordId]?.flow || null,
+            },
+          },
+        })
+      } else if (data.flow) {
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...useAnalysisStore.getState().sessions[recordId],
+              error: data.error || null,
+              flow: data.flow,
+            },
           },
         })
       }
@@ -192,6 +215,7 @@ function startPollingForSession(recordId: string) {
               ...session,
               status: 'failed' as const,
               error: i18n.t('store.error.backendUnavailable'),
+              flow: session.flow,
               canRetry: true,
             },
           },
@@ -295,6 +319,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
           result: null,
           partialResult: null,
           error: null,
+          flow: null,
           canRetry: false,
           startedAt,
           isOptimistic: true,
@@ -340,6 +365,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
             result: null,
             partialResult: null,
             error: null,
+            flow: null,
             canRetry: false,
             startedAt,
             isOptimistic: false,

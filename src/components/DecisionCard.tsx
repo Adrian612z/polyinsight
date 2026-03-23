@@ -94,18 +94,13 @@ interface OptionGroup {
   options: Array<DecisionOption & { side: string | null; diff: number; pointEstimate: number }>
 }
 
+type GroupOption = OptionGroup['options'][number]
+
 function formatPercent(value: number): string {
   return `${new Intl.NumberFormat('en-US', {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   }).format(value)}%`
-}
-
-function formatGap(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  }).format(value)
 }
 
 function roundToTenth(value: number): number {
@@ -170,6 +165,18 @@ function groupDecisionOptions(options: DecisionOption[]): OptionGroup[] {
   return Array.from(grouped.values())
 }
 
+function getSideOrder(side: string | null): number {
+  if (side === 'YES') return 0
+  if (side === 'NO') return 1
+  return 2
+}
+
+function isBinaryYesNoGroup(options: GroupOption[]): boolean {
+  if (options.length !== 2) return false
+  const sides = options.map((option) => option.side)
+  return sides.includes('YES') && sides.includes('NO')
+}
+
 function getPointEstimate(option: DecisionOption): number {
   if (typeof option.fair_mid === 'number') return option.fair_mid
   return option.ai
@@ -189,9 +196,10 @@ function getConfidenceKey(value: DecisionOption['confidence'] | undefined): stri
 interface DecisionCardProps {
   result: string
   eventUrl?: string
+  embedded?: boolean
 }
 
-export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) => {
+export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl, embedded = false }) => {
   const [expanded, setExpanded] = useState(false)
   const { t } = useTranslation()
   const { decision, detail } = useMemo(() => parseResult(result), [result])
@@ -220,11 +228,6 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
           }
         })
         .filter((group) => group.options.length > 0)
-        .sort((a, b) => {
-          const strongestA = Math.max(...a.options.map((option) => Math.abs(option.diff)))
-          const strongestB = Math.max(...b.options.map((option) => Math.abs(option.diff)))
-          return strongestB - strongestA
-        })
 
       return {
         optionGroups: visibleGroups,
@@ -237,7 +240,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
   // Fallback: no structured data, just show markdown
   if (!decision) {
     return (
-      <div className="workspace-frame mx-auto rounded-[28px] p-8 md:p-10">
+      <div className={embedded ? 'article-prose' : 'workspace-frame mx-auto rounded-[28px] p-8 md:p-10'}>
         <div className="article-prose">
         <ReactMarkdown>{result}</ReactMarkdown>
         </div>
@@ -249,9 +252,9 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
   const RiskIcon = risk.icon
 
   return (
-    <div className="max-w-3xl mx-auto space-y-5">
+    <div className={embedded ? 'space-y-5' : 'max-w-3xl mx-auto space-y-5'}>
       {/* Quick Decision Card */}
-      <div className="premium-card rounded-[30px] p-6 md:p-7 space-y-6">
+      <div className={embedded ? 'space-y-6' : 'premium-card rounded-[30px] p-6 md:p-7 space-y-6'}>
         {/* Event Name */}
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="space-y-2">
@@ -293,42 +296,137 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
 
           {optionGroups.map((group) => {
             const rankedOptions = [...group.options].sort((a, b) => {
-              const absDiff = Math.abs(b.diff) - Math.abs(a.diff)
-              if (absDiff !== 0) return absDiff
-              return b.pointEstimate - a.pointEstimate
+              const sideOrder = getSideOrder(a.side) - getSideOrder(b.side)
+              if (sideOrder !== 0) return sideOrder
+              return 0
             })
-            const strongestSignal = rankedOptions[0]
-            const strongestOptionLabel = strongestSignal.side || strongestSignal.name
-            const signalTone =
-              strongestSignal.diff > 0 ? 'tone-safe-badge' :
-              strongestSignal.diff < 0 ? 'tone-danger-badge' :
-              'tone-reject-badge'
-            const signalLabel =
-              strongestSignal.diff > 0
-                ? t('decision.undervalued', { diff: formatGap(Math.abs(strongestSignal.diff)) })
-                : strongestSignal.diff < 0
-                  ? t('decision.overvalued', { diff: formatGap(Math.abs(strongestSignal.diff)) })
-                  : t('decision.even')
+            const isBinaryGroup = isBinaryYesNoGroup(rankedOptions)
+
+            if (isBinaryGroup) {
+              const yesOption = rankedOptions.find((option) => option.side === 'YES')!
+              const marketYes = clampPercent(yesOption.market)
+              const aiYes = clampPercent(yesOption.pointEstimate)
+              const left = Math.min(marketYes, aiYes)
+              const width = Math.max(Math.abs(aiYes - marketYes), 2)
+
+              return (
+                <div key={group.key} className="workspace-subpanel rounded-[24px] p-4 md:p-5">
+                  <div className="space-y-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0 text-2xl font-serif font-semibold tracking-[-0.02em] text-charcoal/88 md:text-[2rem]">
+                        {group.label}
+                      </div>
+                      <div className="flex items-center gap-2 text-sm md:justify-end">
+                        <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-charcoal/8 bg-white/72 px-3 py-1.5 font-semibold text-charcoal/72">
+                          <span className="h-2.5 w-2.5 rounded-full bg-charcoal shadow-[0_0_0_3px_rgba(255,255,255,0.65)]" />
+                          {t('decision.market')} {formatPercent(marketYes)}
+                        </span>
+                        <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-[#8b5cf6]/18 bg-white/72 px-3 py-1.5 font-semibold text-charcoal/72">
+                          <span className="relative h-3 w-3 rounded-full border-2 border-[#8b5cf6] bg-white shadow-[0_0_0_4px_rgba(139,92,246,0.12)]">
+                            <span className="absolute inset-[3px] rounded-full bg-[#8b5cf6]" />
+                          </span>
+                          {t('decision.ai')} {formatPercent(aiYes)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[22px] border border-charcoal/8 bg-white/42 px-4 py-4 md:px-5">
+                      <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-charcoal/42">
+                        <span>NO</span>
+                        <span>YES</span>
+                      </div>
+
+                      <div className="mt-5">
+                        <div className="relative px-1">
+                          <div className="h-3 rounded-full bg-charcoal/[0.08] shadow-[inset_0_1px_2px_rgba(15,23,42,0.08)]" />
+                          <div
+                            className="absolute top-1/2 h-3 -translate-y-1/2 rounded-full bg-gradient-to-r from-[#fb7185]/30 via-[#a855f7]/24 to-[#8b5cf6]/30"
+                            style={{
+                              left: `${left}%`,
+                              width: `${width}%`,
+                            }}
+                          />
+                          <div
+                            className="absolute top-1/2 z-[1] h-4 w-4 -translate-y-1/2 rounded-full bg-charcoal shadow-[0_0_0_4px_rgba(255,255,255,0.8)]"
+                            style={{ left: `calc(${marketYes}% - 8px)` }}
+                          />
+                          <div
+                            className="absolute top-1/2 z-[2] h-5 w-5 -translate-y-1/2 rounded-full border-2 border-[#8b5cf6] bg-white shadow-[0_0_0_5px_rgba(139,92,246,0.12)]"
+                            style={{ left: `calc(${aiYes}% - 10px)` }}
+                          >
+                            <div className="absolute inset-[4px] rounded-full bg-[#8b5cf6]" />
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between px-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-charcoal/32">
+                          <span>0%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+
+                      {(
+                        typeof yesOption.fair_low === 'number' ||
+                        typeof yesOption.fair_high === 'number' ||
+                        yesOption.confidence ||
+                        (Array.isArray(yesOption.sources) && yesOption.sources.length > 0) ||
+                        yesOption.rationale
+                      ) && (
+                        <div className="mt-4 space-y-3 rounded-[18px] border border-charcoal/6 bg-white/44 px-4 py-3">
+                          <div className="flex flex-wrap gap-2 text-xs font-semibold text-charcoal/66">
+                            {typeof yesOption.fair_low === 'number' && typeof yesOption.fair_high === 'number' && (
+                              <span className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5">
+                                {t('decision.fairRange')} {formatPercent(yesOption.fair_low)} - {formatPercent(yesOption.fair_high)}
+                              </span>
+                            )}
+                            <span className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5">
+                              {t('decision.midEstimate')} {formatPercent(aiYes)}
+                            </span>
+                            <span className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5">
+                              {t('decision.confidence')} {t(getConfidenceKey(yesOption.confidence))}
+                            </span>
+                          </div>
+
+                          {yesOption.rationale && (
+                            <p className="text-sm leading-6 text-charcoal/66">
+                              {yesOption.rationale}
+                            </p>
+                          )}
+
+                          {Array.isArray(yesOption.sources) && yesOption.sources.length > 0 && (
+                            <div className="space-y-2">
+                              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-charcoal/38">
+                                {t('decision.sources')}
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {yesOption.sources.slice(0, 4).map((source) => (
+                                  <span
+                                    key={`${yesOption.name}-${source}`}
+                                    className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5 text-xs font-medium text-charcoal/62"
+                                  >
+                                    {source}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            }
 
             return (
               <div key={group.key} className="workspace-subpanel rounded-[24px] p-4 md:p-5">
                 <div className="space-y-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="flex flex-col gap-3">
                     <div className="min-w-0">
                       <div className="text-sm font-semibold uppercase tracking-[0.18em] text-charcoal/40">
                         {group.label}
                       </div>
                       <div className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-charcoal/36">
                         {rankedOptions.map((option) => option.side || option.name).join(' / ')}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 self-start md:justify-end">
-                      <div className="text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-charcoal/36">
-                        {strongestOptionLabel}
-                      </div>
-                      <div className={`inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${signalTone}`}>
-                        {signalLabel}
                       </div>
                     </div>
                   </div>
@@ -493,7 +591,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
 
       {/* Expandable Detail */}
       {expanded && detail && (
-        <div className="workspace-frame rounded-[28px] p-7 md:p-8 animate-fade-in-up">
+        <div className={embedded ? 'workspace-subpanel rounded-[24px] p-6 md:p-7 animate-fade-in-up' : 'workspace-frame rounded-[28px] p-7 md:p-8 animate-fade-in-up'}>
           <div className="article-prose">
           <ReactMarkdown>{detail}</ReactMarkdown>
           </div>

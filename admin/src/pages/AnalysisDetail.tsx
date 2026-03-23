@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { ArrowLeft, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
-import ReactMarkdown from 'react-markdown'
+import { AnalysisFlowPanel } from '../components/AnalysisFlowPanel'
 
 interface Analysis {
   id: string
@@ -14,6 +14,35 @@ interface Analysis {
   credits_charged: number
   created_at: string
   updated_at: string
+}
+
+interface AnalysisJob {
+  id: string
+  status: string
+  attempts: number
+  max_attempts: number
+  last_error: string | null
+  locked_by: string | null
+  locked_at: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface AnalysisFlowStep {
+  key: 'queued' | 'info' | 'probability' | 'risk' | 'report'
+  label: string
+  status: 'waiting' | 'running' | 'completed' | 'failed' | 'cancelled'
+  content: string | null
+  error: string | null
+}
+
+interface AnalysisFlowView {
+  overallStatus: 'pending' | 'completed' | 'failed' | 'cancelled'
+  activeStepKey: AnalysisFlowStep['key'] | null
+  error: string | null
+  steps: AnalysisFlowStep[]
 }
 
 interface AnalysisUser {
@@ -27,6 +56,8 @@ export default function AnalysisDetail() {
   const navigate = useNavigate()
   const [analysis, setAnalysis] = useState<Analysis | null>(null)
   const [user, setUser] = useState<AnalysisUser | null>(null)
+  const [latestJob, setLatestJob] = useState<AnalysisJob | null>(null)
+  const [flow, setFlow] = useState<AnalysisFlowView | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -35,6 +66,8 @@ export default function AnalysisDetail() {
       .then((data) => {
         setAnalysis(data.analysis)
         setUser(data.user)
+        setLatestJob(data.latestJob || null)
+        setFlow(data.flow || null)
       })
       .finally(() => setLoading(false))
   }, [id])
@@ -56,11 +89,6 @@ export default function AnalysisDetail() {
     failed: 'bg-red-100 text-red-700',
     pending: 'bg-amber-100 text-amber-700',
   }
-
-  // Clean step markers from the markdown
-  const cleanResult = analysis.analysis_result
-    ?.replace(/<!--STEP:\w+-->/g, '')
-    ?.trim()
 
   return (
     <div className="space-y-6">
@@ -123,22 +151,47 @@ export default function AnalysisDetail() {
       </div>
 
       {/* Analysis Result */}
-      {cleanResult && (
+      {flow && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold mb-4">分析报告</h3>
-          <div className="markdown-body prose prose-sm max-w-none">
-            <ReactMarkdown>{cleanResult}</ReactMarkdown>
-          </div>
+          <AnalysisFlowPanel flow={flow} />
         </div>
       )}
 
-      {!cleanResult && analysis.status === 'pending' && (
+      {latestJob && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-lg font-semibold mb-4">任务信息</h3>
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-gray-500">任务状态</dt>
+              <dd className="mt-0.5 text-gray-700">{latestJob.status}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">重试次数</dt>
+              <dd className="mt-0.5 text-gray-700">{latestJob.attempts} / {latestJob.max_attempts}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">开始时间</dt>
+              <dd className="mt-0.5 text-gray-700">{latestJob.started_at || '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">结束时间</dt>
+              <dd className="mt-0.5 text-gray-700">{latestJob.finished_at || '—'}</dd>
+            </div>
+            <div className="md:col-span-2">
+              <dt className="text-gray-500">最后错误</dt>
+              <dd className="mt-0.5 text-gray-700 break-words">{latestJob.last_error || '—'}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
+
+      {!flow && analysis.status === 'pending' && (
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-6 text-center text-amber-700">
           分析正在进行中...
         </div>
       )}
 
-      {!cleanResult && analysis.status === 'failed' && (
+      {!flow && analysis.status === 'failed' && (
         <div className="bg-red-50 rounded-xl border border-red-200 p-6 text-center text-red-700">
           分析失败，未生成报告
         </div>
