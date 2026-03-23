@@ -7,6 +7,12 @@ interface DecisionOption {
   name: string
   market: number
   ai: number
+  fair_low?: number
+  fair_high?: number
+  fair_mid?: number
+  confidence?: 'low' | 'medium' | 'high'
+  sources?: string[]
+  rationale?: string
 }
 
 interface DecisionData {
@@ -85,7 +91,7 @@ const directionMap: Record<string, string> = {
 interface OptionGroup {
   key: string
   label: string
-  options: Array<DecisionOption & { side: string | null; diff: number }>
+  options: Array<DecisionOption & { side: string | null; diff: number; pointEstimate: number }>
 }
 
 function formatPercent(value: number): string {
@@ -141,10 +147,12 @@ function groupDecisionOptions(options: DecisionOption[]): OptionGroup[] {
     const key = `${label}::${side ?? option.name}`
     const groupKey = side ? label : key
     const existing = grouped.get(groupKey)
+    const pointEstimate = getPointEstimate(option)
     const enriched = {
       ...option,
       side,
-      diff: option.ai - option.market,
+      pointEstimate,
+      diff: pointEstimate - option.market,
     }
 
     if (existing) {
@@ -160,6 +168,22 @@ function groupDecisionOptions(options: DecisionOption[]): OptionGroup[] {
   }
 
   return Array.from(grouped.values())
+}
+
+function getPointEstimate(option: DecisionOption): number {
+  if (typeof option.fair_mid === 'number') return option.fair_mid
+  return option.ai
+}
+
+function getConfidenceKey(value: DecisionOption['confidence'] | undefined): string {
+  switch (value) {
+    case 'low':
+      return 'decision.confidence.low'
+    case 'high':
+      return 'decision.confidence.high'
+    default:
+      return 'decision.confidence.medium'
+  }
 }
 
 interface DecisionCardProps {
@@ -271,7 +295,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
             const rankedOptions = [...group.options].sort((a, b) => {
               const absDiff = Math.abs(b.diff) - Math.abs(a.diff)
               if (absDiff !== 0) return absDiff
-              return b.ai - a.ai
+              return b.pointEstimate - a.pointEstimate
             })
             const strongestSignal = rankedOptions[0]
             const strongestOptionLabel = strongestSignal.side || strongestSignal.name
@@ -312,7 +336,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
                   <div className="grid gap-3">
                     {rankedOptions.map((opt) => {
                       const marketPosition = clampPercent(opt.market)
-                      const aiPosition = clampPercent(opt.ai)
+                      const aiPosition = clampPercent(opt.pointEstimate)
                       const left = Math.min(marketPosition, aiPosition)
                       const width = Math.max(Math.abs(aiPosition - marketPosition), 2)
 
@@ -334,10 +358,56 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ result, eventUrl }) 
                                 <span className="relative h-3 w-3 rounded-full border-2 border-[#8b5cf6] bg-white shadow-[0_0_0_4px_rgba(139,92,246,0.12)]">
                                   <span className="absolute inset-[3px] rounded-full bg-[#8b5cf6]" />
                                 </span>
-                                {t('decision.ai')} {formatPercent(opt.ai)}
+                                {t('decision.ai')} {formatPercent(opt.pointEstimate)}
                               </span>
                             </div>
                           </div>
+
+                          {(typeof opt.fair_low === 'number' ||
+                            typeof opt.fair_high === 'number' ||
+                            opt.confidence ||
+                            (Array.isArray(opt.sources) && opt.sources.length > 0) ||
+                            opt.rationale) && (
+                            <div className="mt-4 space-y-3 rounded-[18px] border border-charcoal/6 bg-white/44 px-4 py-3">
+                              <div className="flex flex-wrap gap-2 text-xs font-semibold text-charcoal/66">
+                                {typeof opt.fair_low === 'number' && typeof opt.fair_high === 'number' && (
+                                  <span className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5">
+                                    {t('decision.fairRange')} {formatPercent(opt.fair_low)} - {formatPercent(opt.fair_high)}
+                                  </span>
+                                )}
+                                <span className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5">
+                                  {t('decision.midEstimate')} {formatPercent(opt.pointEstimate)}
+                                </span>
+                                <span className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5">
+                                  {t('decision.confidence')} {t(getConfidenceKey(opt.confidence))}
+                                </span>
+                              </div>
+
+                              {opt.rationale && (
+                                <p className="text-sm leading-6 text-charcoal/66">
+                                  {opt.rationale}
+                                </p>
+                              )}
+
+                              {Array.isArray(opt.sources) && opt.sources.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-charcoal/38">
+                                    {t('decision.sources')}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {opt.sources.slice(0, 4).map((source) => (
+                                      <span
+                                        key={`${opt.name}-${source}`}
+                                        className="inline-flex items-center rounded-full border border-charcoal/8 bg-white/70 px-3 py-1.5 text-xs font-medium text-charcoal/62"
+                                      >
+                                        {source}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="mt-5">
                             <div className="relative px-1">

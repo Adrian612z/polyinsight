@@ -23,8 +23,8 @@ const BILLING_PLANS: Record<BillingPlanId, BillingPlanDefinition> = {
   },
   monthly: {
     id: 'monthly',
-    expectedAmountTokens: 39.9,
-    minimumAmountTokens: 39.9,
+    expectedAmountTokens: 20,
+    minimumAmountTokens: 20,
     creditedCenticredits: 6000,
     unlimited: false,
     durationDays: 30,

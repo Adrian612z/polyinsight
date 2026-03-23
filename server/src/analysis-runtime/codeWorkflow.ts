@@ -39,6 +39,26 @@ interface ModelRequestOptions {
   maxOutputTokens?: number
 }
 
+interface ProbabilityEstimateOption {
+  name: string
+  market: number
+  fair_low: number
+  fair_high: number
+  fair_mid: number
+  confidence: 'low' | 'medium' | 'high'
+  sources: string[]
+  rationale: string
+}
+
+interface StructuredProbabilityEstimate {
+  event: string
+  deadline: string
+  options: ProbabilityEstimateOption[]
+  recommendation: string
+  direction: string
+  summary_markdown: string
+}
+
 interface SemaphoreWaiter {
   resolve: () => void
   reject: (error: Error) => void
@@ -130,7 +150,7 @@ export async function runStandaloneCodeAnalysis(input: {
   hooks?: RuntimeHooks
 }): Promise<{
   info: string
-  probability: string
+  probability: StructuredProbabilityEstimate
   risk: string
   finalResult: string
 }> {
@@ -138,12 +158,13 @@ export async function runStandaloneCodeAnalysis(input: {
   const event = await fetchEventBySlug(input.slug, input.hooks?.signal)
   const context = await buildWorkflowContext(event)
   const promptSources = buildPromptSources(context, input.lang)
+  const marketBlindPromptSources = buildMarketBlindPromptSources(context, input.lang)
 
   ensureRuntimeActive(input.hooks)
   const info = await requestModelText(
     config.analysisCodeBaseUrl.replace(/\/+$/, ''),
-    getStep2SystemPrompt(promptSources),
-    buildStep2Prompt(promptSources),
+    getStep2SystemPrompt(marketBlindPromptSources),
+    buildStep2Prompt(marketBlindPromptSources),
     {
       model: config.analysisCodeExtractModel,
       maxRetries: 1,
@@ -159,10 +180,10 @@ export async function runStandaloneCodeAnalysis(input: {
   }
 
   ensureRuntimeActive(input.hooks)
-  const probability = await requestModelText(
+  const probabilityRaw = await requestModelText(
     config.analysisCodeBaseUrl.replace(/\/+$/, ''),
-    getStep3SystemPrompt(toAnalysisPath(context.router.analysis_path), promptSources),
-    buildStep3Prompt({ ...promptSources, step2Output: info }),
+    getStep3SystemPrompt(toAnalysisPath(context.router.analysis_path), marketBlindPromptSources),
+    buildStep3Prompt({ ...marketBlindPromptSources, step2Output: info }),
     {
       model: config.analysisCodeAnalysisModel,
       maxRetries: config.analysisCodeMaxRetries,
@@ -172,13 +193,16 @@ export async function runStandaloneCodeAnalysis(input: {
     },
     input.hooks
   )
+  const probability = normalizeProbabilityEstimate(probabilityRaw, context, input.lang)
+  const probabilityJson = JSON.stringify(probability, null, 2)
+  const probabilityStep = renderProbabilityStep(probability, input.lang)
 
   if (input.recordId) {
     await persistStep(
       input.recordId,
       [
         ['info', info],
-        ['probability', probability],
+        ['probability', probabilityStep],
       ],
       input.hooks
     )
@@ -188,7 +212,7 @@ export async function runStandaloneCodeAnalysis(input: {
   const risk = await requestModelText(
     config.analysisCodeBaseUrl.replace(/\/+$/, ''),
     getStep4SystemPrompt(toAnalysisPath(context.router.analysis_path), promptSources),
-    buildStep4Prompt({ ...promptSources, step2Output: info, step3Output: probability }),
+    buildStep4Prompt({ ...promptSources, step2Output: info, step3Output: probabilityJson }),
     {
       model: config.analysisCodeAuditModel,
       maxRetries: config.analysisCodeMaxRetries,
@@ -204,7 +228,7 @@ export async function runStandaloneCodeAnalysis(input: {
       input.recordId,
       [
         ['info', info],
-        ['probability', probability],
+        ['probability', probabilityStep],
         ['risk', risk],
       ],
       input.hooks
@@ -215,7 +239,7 @@ export async function runStandaloneCodeAnalysis(input: {
   const finalResult = await requestModelText(
     config.analysisCodeBaseUrl.replace(/\/+$/, ''),
     getStep5SystemPrompt(promptSources),
-    buildStep5Prompt({ ...promptSources, step2Output: info, step3Output: probability, step4Output: risk }),
+    buildStep5Prompt({ ...promptSources, step2Output: info, step3Output: probabilityJson, step4Output: risk }),
     {
       model: config.analysisCodeReportModel,
       maxRetries: config.analysisCodeMaxRetries,
@@ -263,33 +287,28 @@ function buildPromptSources(context: WorkflowContext, lang: RuntimeLang) {
     marketSnapshot: context.marketSnapshot,
     retrievalPlan: context.retrievalPlan,
     retrievalPack: context.retrievalPack,
-    nowDate: formatShanghaiDate(false),
-    nowDateTime: formatShanghaiDate(true),
+    nowDate: formatUtcNow(false),
+    nowDateTime: formatUtcNow(true),
     lang,
   }
 }
 
-function formatShanghaiDate(includeTime: boolean): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    ...(includeTime
-      ? {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: false,
-        }
-      : {}),
-  })
-
-  const parts = formatter.formatToParts(new Date())
-  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  if (!includeTime) {
-    return `${map.year}-${map.month}-${map.day}`
+function buildMarketBlindPromptSources(context: WorkflowContext, lang: RuntimeLang) {
+  return {
+    router: context.router,
+    analysisPlan: stripPredictionMarketPricing(context.analysisPlan),
+    marketSnapshot: stripPredictionMarketPricing(context.marketSnapshot),
+    retrievalPlan: context.retrievalPlan,
+    retrievalPack: context.retrievalPack,
+    nowDate: formatUtcNow(false),
+    nowDateTime: formatUtcNow(true),
+    lang,
   }
-  return `${map.year}-${map.month}-${map.day}-${map.hour}-${map.minute}`
+}
+
+function formatUtcNow(includeTime: boolean): string {
+  const nowIso = new Date().toISOString()
+  return includeTime ? nowIso.replace(/\.\d{3}Z$/, 'Z') : nowIso.slice(0, 10)
 }
 
 function toAnalysisPath(value: unknown): AnalysisPath {
@@ -299,10 +318,275 @@ function toAnalysisPath(value: unknown): AnalysisPath {
     case 'numeric_market':
     case 'competitive_multi_outcome':
     case 'sports_competition':
+    case 'weather_station_bucket':
+    case 'weather_accumulation_bucket':
+    case 'weather_first_occurrence_race':
+    case 'tropical_cyclone_event':
+    case 'climate_index_numeric':
       return value
     default:
       return 'generic_fallback'
   }
+}
+
+const PREDICTION_MARKET_PRICING_KEYS = new Set([
+  'market',
+  'probability',
+  'yes_probability',
+  'no_probability',
+  'market_sum_yes',
+])
+
+function stripPredictionMarketPricing<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripPredictionMarketPricing(entry)) as T
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  const next: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (PREDICTION_MARKET_PRICING_KEYS.has(key)) {
+      continue
+    }
+    next[key] = stripPredictionMarketPricing(child)
+  }
+
+  return next as T
+}
+
+function normalizeProbabilityEstimate(
+  rawText: string,
+  context: WorkflowContext,
+  lang: RuntimeLang
+): StructuredProbabilityEstimate {
+  const parsed = parseJsonObject<Partial<StructuredProbabilityEstimate>>(rawText)
+  const analysisPlan = context.analysisPlan && typeof context.analysisPlan === 'object' ? context.analysisPlan : {}
+  const expectedRows = Array.isArray((analysisPlan as Record<string, unknown>).decision_option_rows)
+    ? ((analysisPlan as Record<string, unknown>).decision_option_rows as Array<Record<string, unknown>>)
+    : []
+
+  const rawOptions = Array.isArray(parsed.options) ? (parsed.options as unknown as Array<Record<string, unknown>>) : []
+  const rawOptionMap = new Map(
+    rawOptions
+      .filter((option) => typeof option?.name === 'string')
+      .map((option) => [normalizeOptionKey(String(option.name)), option as Partial<ProbabilityEstimateOption>])
+  )
+
+  const normalizedOptions = expectedRows.length > 0
+    ? expectedRows.map((row) => {
+        const expectedName = String(row.name || '').trim()
+        const expectedMarket = clampPercent(toNumber(row.market, 50))
+        return normalizeProbabilityOption(rawOptionMap.get(normalizeOptionKey(expectedName)), expectedName, expectedMarket, lang)
+      })
+    : rawOptions
+        .filter((option) => typeof option?.name === 'string')
+        .map((option) =>
+          normalizeProbabilityOption(
+            option as Partial<ProbabilityEstimateOption>,
+            String(option.name),
+            clampPercent(toNumber(option.market, 50)),
+            lang
+          )
+        )
+
+  const calibratedOptions = calibrateProbabilityOptions(normalizedOptions, analysisPlan)
+  const fallbackSummary =
+    lang === 'zh'
+      ? '已结合市场价格、最新信息和截止时间，给出更保守的概率区间与中心判断。'
+      : 'The estimate combines market pricing, recent evidence, and deadline pressure into a more conservative fair range.'
+
+  return {
+    event: typeof parsed.event === 'string' && parsed.event.trim() ? parsed.event.trim() : context.event?.title || 'Polymarket event',
+    deadline:
+      typeof parsed.deadline === 'string' && parsed.deadline.trim()
+        ? parsed.deadline.trim()
+        : String((analysisPlan as Record<string, unknown>).primary_deadline || context.event?.endDate || 'N/A'),
+    options: calibratedOptions,
+    recommendation:
+      typeof parsed.recommendation === 'string' && parsed.recommendation.trim()
+        ? parsed.recommendation.trim()
+        : lang === 'zh'
+          ? '优先关注 AI 判断与市场价格差距最大的选项。'
+          : 'Focus on the option with the clearest gap between the AI view and market pricing.',
+    direction:
+      typeof parsed.direction === 'string' && parsed.direction.trim()
+        ? parsed.direction.trim()
+        : 'Do not participate',
+    summary_markdown:
+      typeof parsed.summary_markdown === 'string' && parsed.summary_markdown.trim()
+        ? parsed.summary_markdown.trim()
+        : fallbackSummary,
+  }
+}
+
+function normalizeProbabilityOption(
+  raw: Partial<ProbabilityEstimateOption> | undefined,
+  expectedName: string,
+  expectedMarket: number,
+  lang: RuntimeLang
+): ProbabilityEstimateOption {
+  const market = roundToTenth(expectedMarket)
+  const baseMid = clampPercent(toNumber(raw?.fair_mid, toNumber((raw as Record<string, unknown> | undefined)?.ai, market)))
+  const baseLow = clampPercent(toNumber(raw?.fair_low, Math.max(0, baseMid - 6)))
+  const baseHigh = clampPercent(toNumber(raw?.fair_high, Math.min(100, baseMid + 6)))
+  const ordered = [baseLow, baseMid, baseHigh].sort((a, b) => a - b)
+
+  return {
+    name: expectedName,
+    market,
+    fair_low: roundToTenth(ordered[0]),
+    fair_mid: roundToTenth(ordered[1]),
+    fair_high: roundToTenth(ordered[2]),
+    confidence: normalizeConfidence(raw?.confidence),
+    sources: Array.isArray(raw?.sources)
+      ? raw.sources.map((value) => String(value).trim()).filter(Boolean).slice(0, 6)
+      : [],
+    rationale:
+      typeof raw?.rationale === 'string' && raw.rationale.trim()
+        ? raw.rationale.trim()
+        : lang === 'zh'
+          ? '模型未提供充分理由，已回退到更保守的默认区间。'
+          : 'The model did not provide a strong rationale, so a conservative fallback range was used.',
+  }
+}
+
+function calibrateProbabilityOptions(
+  options: ProbabilityEstimateOption[],
+  analysisPlan: Record<string, unknown>
+): ProbabilityEstimateOption[] {
+  if (options.length === 0) return []
+
+  const structureKind = String(analysisPlan.structure_kind || '')
+  const analysisPath = String(analysisPlan.analysis_path || '')
+  const monotonicityApplies =
+    Boolean((analysisPlan.monotonicity as Record<string, unknown> | undefined)?.applies) ||
+    analysisPath === 'linked_binary_ladder' ||
+    structureKind === 'timing_curve' ||
+    structureKind === 'numeric_timing_curve'
+
+  let next = options.map((option) => ({ ...option }))
+
+  if (shouldNormalizeExclusiveDistribution(structureKind, analysisPath, next.length)) {
+    const total = next.reduce((sum, option) => sum + option.fair_mid, 0)
+    if (total > 0.001) {
+      next = next.map((option) => {
+        const spreadLow = Math.max(0, option.fair_mid - option.fair_low)
+        const spreadHigh = Math.max(0, option.fair_high - option.fair_mid)
+        const fairMid = roundToTenth(clampPercent((option.fair_mid / total) * 100))
+        const fairLow = roundToTenth(clampPercent(fairMid - spreadLow))
+        const fairHigh = roundToTenth(clampPercent(fairMid + spreadHigh))
+        return {
+          ...option,
+          fair_low: Math.min(fairLow, fairMid),
+          fair_mid: fairMid,
+          fair_high: Math.max(fairHigh, fairMid),
+        }
+      })
+    }
+  }
+
+  if (monotonicityApplies) {
+    let runningLow = 0
+    let runningMid = 0
+    let runningHigh = 0
+    next = next.map((option) => {
+      runningLow = Math.max(runningLow, option.fair_low)
+      runningMid = Math.max(runningMid, option.fair_mid)
+      runningHigh = Math.max(runningHigh, option.fair_high)
+      const boundedHigh = Math.max(runningMid, Math.min(100, runningHigh))
+      return {
+        ...option,
+        fair_low: roundToTenth(Math.min(runningLow, runningMid)),
+        fair_mid: roundToTenth(runningMid),
+        fair_high: roundToTenth(boundedHigh),
+      }
+    })
+  }
+
+  return next
+}
+
+function shouldNormalizeExclusiveDistribution(structureKind: string, analysisPath: string, optionCount: number): boolean {
+  if (optionCount <= 1) return false
+  if (analysisPath === 'linked_binary_ladder') return false
+  if (structureKind === 'timing_curve' || structureKind === 'numeric_timing_curve') return false
+  if (structureKind === 'sports_qualification_bundle' || structureKind === 'sports_generic_multi' || structureKind === 'event_bundle') {
+    return false
+  }
+  return true
+}
+
+function renderProbabilityStep(draft: StructuredProbabilityEstimate, lang: RuntimeLang): string {
+  const heading = lang === 'zh' ? '## 概率分析' : '## Probability Analysis'
+  const subheading = lang === 'zh' ? '### 关键概率' : '### Key probabilities'
+  const confidenceLabel = (value: ProbabilityEstimateOption['confidence']) => {
+    if (lang === 'zh') {
+      return value === 'high' ? '高' : value === 'medium' ? '中' : '低'
+    }
+    return value
+  }
+
+  const lines = [heading, draft.summary_markdown, '', subheading]
+  for (const option of draft.options) {
+    const sourceSuffix = option.sources.length > 0
+      ? lang === 'zh'
+        ? ` | 依据: ${option.sources.slice(0, 2).join('；')}`
+        : ` | Sources: ${option.sources.slice(0, 2).join('; ')}`
+      : ''
+    lines.push(
+      `- ${option.name}: ${lang === 'zh' ? '市场' : 'Market'} ${formatPercent(option.market)} | ${lang === 'zh' ? '合理区间' : 'Fair range'} ${formatPercent(option.fair_low)}-${formatPercent(option.fair_high)} | ${lang === 'zh' ? '中心判断' : 'Mid'} ${formatPercent(option.fair_mid)} | ${lang === 'zh' ? '把握度' : 'Confidence'} ${confidenceLabel(option.confidence)}${sourceSuffix}`
+    )
+  }
+
+  return lines.join('\n')
+}
+
+function normalizeOptionKey(value: string): string {
+  return value.replace(/\s+/g, ' ').replace(/[–—]/g, '-').trim().toLowerCase()
+}
+
+function normalizeConfidence(value: unknown): ProbabilityEstimateOption['confidence'] {
+  if (typeof value === 'number') {
+    if (value >= 0.75) return 'high'
+    if (value >= 0.45) return 'medium'
+    return 'low'
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'high' || normalized === 'medium' || normalized === 'low') return normalized
+  }
+  return 'medium'
+}
+
+function toNumber(value: unknown, fallback: number): number {
+  const next = Number(value)
+  return Number.isFinite(next) ? next : fallback
+}
+
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, value))
+}
+
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function formatPercent(value: number): string {
+  return `${roundToTenth(value).toFixed(1)}%`
+}
+
+function parseJsonObject<T>(text: string): T {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i)
+  const raw = fenced ? fenced[1] : text
+  const start = raw.indexOf('{')
+  const end = raw.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error(`Could not locate JSON object in model output: ${text.slice(0, 200)}`)
+  }
+  return JSON.parse(raw.slice(start, end + 1)) as T
 }
 
 async function requestModelText(

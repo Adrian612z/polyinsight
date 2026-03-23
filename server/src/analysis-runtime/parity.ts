@@ -1,3 +1,13 @@
+import {
+  buildWeatherProfile,
+  buildWeatherResolutionSpec,
+  buildWeatherSettlementRisk,
+  buildWeatherStructuredContext,
+  detectWeatherRouting,
+  summarizeWeatherRoutingReason,
+  type WeatherAnalysisPath,
+} from './weather.js'
+
 export interface PolymarketTag {
   slug?: string
   label?: string
@@ -66,6 +76,16 @@ interface SportsProfile {
   subtype: string | null
   reportable_note: string | null
   omitted_count: number
+}
+
+interface DeadlineContext {
+  has_deadline: boolean
+  deadline_iso: string | null
+  deadline_status: 'none' | 'active' | 'critical' | 'expired'
+  urgency: 'none' | 'long_term' | 'medium_term' | 'near_term' | 'critical' | 'expired'
+  hours_to_deadline: number | null
+  days_to_deadline: number | null
+  freshness_window_hours: number | null
 }
 
 export async function buildWorkflowContext(event: PolymarketEvent): Promise<WorkflowContext> {
@@ -226,11 +246,16 @@ function routeMarketType(event: PolymarketEvent): RoutedEvent {
   ])
   const politicsTags = new Set(['politics', 'geopolitics', 'world-elections', 'elections', 'global-elections', 'us-government'])
   const financeTags = new Set(['crypto', 'finance', 'economy', 'business', 'tech', 'big-tech', 'stablecoins'])
+  const weatherRouting = detectWeatherRouting({
+    ...event,
+    markets,
+  })
 
   let domain = 'general'
   if (tags.some((tag) => sportsTags.has(tag))) domain = 'sports'
   else if (tags.some((tag) => politicsTags.has(tag))) domain = 'politics'
   else if (tags.some((tag) => financeTags.has(tag))) domain = 'finance'
+  else if (weatherRouting) domain = weatherRouting.domain
   else if (
     tags.includes('pop-culture') ||
     tags.includes('movies') ||
@@ -245,6 +270,10 @@ function routeMarketType(event: PolymarketEvent): RoutedEvent {
   if (domain === 'sports') {
     marketType = 'sports_competition'
     reasons.push('sports tags dominate the event metadata')
+  } else if (weatherRouting) {
+    marketType = weatherRouting.marketType
+    reasons.push(...weatherRouting.reasons)
+    reasons.push(summarizeWeatherRoutingReason(weatherRouting.marketType))
   } else if (looksLikeNumericBucketDistribution) {
     marketType = 'numeric_bucket_distribution'
     reasons.push('event contains numeric yes/no buckets that behave like a distribution, not a single binary trade')
@@ -281,7 +310,14 @@ function routeMarketType(event: PolymarketEvent): RoutedEvent {
 
   const analysisPath = marketType.startsWith('numeric_')
     ? 'numeric_market'
-    : marketType === 'deadline_procedural' || marketType === 'linked_binary_ladder' || marketType === 'sports_competition'
+    : marketType === 'deadline_procedural' ||
+        marketType === 'linked_binary_ladder' ||
+        marketType === 'sports_competition' ||
+        marketType === 'weather_station_bucket' ||
+        marketType === 'weather_accumulation_bucket' ||
+        marketType === 'weather_first_occurrence_race' ||
+        marketType === 'tropical_cyclone_event' ||
+        marketType === 'climate_index_numeric'
       ? marketType
       : marketType === 'exclusive_field_distribution'
         ? 'competitive_multi_outcome'
@@ -296,6 +332,12 @@ function routeMarketType(event: PolymarketEvent): RoutedEvent {
           ? 0.88
           : marketType === 'sports_competition'
             ? 0.85
+            : marketType === 'weather_station_bucket' || marketType === 'weather_accumulation_bucket'
+              ? 0.88
+              : marketType === 'weather_first_occurrence_race' || marketType === 'tropical_cyclone_event'
+                ? 0.84
+                : marketType === 'climate_index_numeric'
+                  ? 0.8
             : marketType === 'numeric_threshold' ||
                 marketType === 'linked_binary_ladder' ||
                 marketType === 'competitive_multi_outcome'
@@ -315,6 +357,11 @@ function routeMarketType(event: PolymarketEvent): RoutedEvent {
     deadline_occurrence: ['primary_reporting', 'wire', 'official_when_available'],
     competitive_multi_outcome: ['official_status', 'polling_or_odds', 'major_reporting'],
     sports_competition: ['official_standings_and_schedule', 'official_injury_or_availability_reports', 'projection_or_odds_calibration', 'major_sports_reporting'],
+    weather_station_bucket: ['official_station_observations', 'official_hourly_forecast', 'ensemble_weather_guidance', 'settlement_source_mirror'],
+    weather_accumulation_bucket: ['official_climate_summary', 'official_precipitation_guidance', 'ensemble_weather_guidance', 'seasonal_regime_context'],
+    weather_first_occurrence_race: ['official_station_observations', 'official_daily_climate_reports', 'ensemble_weather_guidance', 'settlement_tiebreak_rules'],
+    tropical_cyclone_event: ['nhc_official_products', 'tropical_hazards_outlook', 'official_storm_list', 'seasonal_hurricane_context'],
+    climate_index_numeric: ['official_dataset_release', 'seasonal_climate_guidance', 'official_methodology'],
     rule_sensitive: ['market_rules', 'resolution_source', 'precedent'],
     generic_fallback: ['high_quality_recent_reporting'],
   }
@@ -370,6 +417,8 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
         ? 'open_active_markets'
         : 'all_open_markets'
   const markets = analysisMarkets
+  const primaryDeadline = resolvePrimaryDeadline(event)
+  const deadlineContext = buildDeadlineContext(primaryDeadline)
   const title = String(event.title || '').trim()
   const titleLower = title.toLowerCase()
   const tags = Array.isArray(event.tags)
@@ -481,6 +530,28 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
     }
   }
 
+  const weatherPathSet = new Set<WeatherAnalysisPath>([
+    'weather_station_bucket',
+    'weather_accumulation_bucket',
+    'weather_first_occurrence_race',
+    'tropical_cyclone_event',
+    'climate_index_numeric',
+  ])
+  const weatherPath = weatherPathSet.has(router.analysis_path as WeatherAnalysisPath)
+    ? (router.analysis_path as WeatherAnalysisPath)
+    : null
+  const weatherResolutionSpec = weatherPath
+    ? buildWeatherResolutionSpec(event, weatherPath, normalizedMarkets, primaryDeadline)
+    : null
+  const weatherProfile =
+    weatherPath && weatherResolutionSpec
+      ? buildWeatherProfile(event, weatherPath, weatherResolutionSpec, normalizedMarkets)
+      : null
+  const weatherSettlementRisk =
+    weatherPath && weatherResolutionSpec
+      ? buildWeatherSettlementRisk(weatherPath, weatherResolutionSpec)
+      : null
+
   let structureKind = 'generic'
   if (router.market_type === 'linked_binary_ladder') structureKind = 'timing_curve'
   else if (router.market_type === 'exclusive_field_distribution') structureKind = 'exclusive_field_distribution'
@@ -490,6 +561,7 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
   else if (router.market_type === 'numeric_threshold') structureKind = 'numeric_threshold'
   else if (router.market_type === 'deadline_procedural') structureKind = 'deadline_procedural'
   else if (router.market_type === 'sports_competition') structureKind = 'sports_competition'
+  else if (weatherPath) structureKind = weatherPath
 
   if (sportsProfile.applies) {
     if (sportsProfile.subtype === 'sports_winner_field') structureKind = 'sports_winner_field'
@@ -651,6 +723,31 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
       'For sports_multi_option_market, treat the active market as a mutually exclusive option set such as home/draw/away and score every actual option.',
       'For sports_binary_outcome or sports_qualification_bundle, focus on standings, schedule, injuries, and competition-format mechanics before telling a story.',
     ],
+    weather_station_bucket: [
+      'Treat the market as a station-level weather bucket market and define the settlement variable before discussing edge.',
+      'Use weather_resolution_spec to identify the official source, local day, station, unit, and bucket edges.',
+      'Model the daily max or min as a weather distribution rather than as a narrative yes/no claim.',
+    ],
+    weather_accumulation_bucket: [
+      'Treat the market as an accumulated weather total over a defined window.',
+      'Separate realized accumulation from remaining-window forecast and do not model the whole period as one unknown.',
+      'Respect settlement precision, bucket edges, and any boundary rule in weather_resolution_spec.',
+    ],
+    weather_first_occurrence_race: [
+      'Treat the market as a multi-location first-occurrence race with an explicit qualifying threshold.',
+      'Model each location separately and apply the tie_break_rule exactly as written in weather_resolution_spec.',
+      'Do not collapse the event into one generic weather headline.',
+    ],
+    tropical_cyclone_event: [
+      'Treat the market as an official tropical-cyclone classification or count question.',
+      'Use NHC classification timing and the market deadline, not generic storm chatter, as the settlement frame.',
+      'Distinguish forecast formation risk from official designation risk.',
+    ],
+    climate_index_numeric: [
+      'Treat the market as a climate dataset or climate-index measurement.',
+      'Anchor on the official dataset definition, update cadence, and measurement convention before scoring buckets.',
+      'Do not force short-range weather logic onto a long-range climate metric.',
+    ],
     numeric_market: [
       'Determine the metric, unit, and settlement measurement exactly.',
       'Use current level, distance to threshold or bucket, and upcoming catalysts to build a calibrated distribution.',
@@ -689,7 +786,8 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
     ).length,
     market_filter_mode: marketFilterMode,
     source_policy: router.source_policy || [],
-    primary_deadline: event.endDate || null,
+    primary_deadline: primaryDeadline,
+    deadline_context: deadlineContext,
     normalized_markets: orderedMarkets,
     reportable_markets: reportableMarkets,
     decision_option_rows: decisionOptionRows,
@@ -697,6 +795,9 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
     distribution_check: distributionCheck,
     field_summary: fieldSummary,
     sports_profile: sportsProfile,
+    weather_resolution_spec: weatherResolutionSpec,
+    weather_profile: weatherProfile,
+    weather_settlement_risk: weatherSettlementRisk,
     special_instructions: [
       'Only analyze the active/tradable market set in normalized_markets; filtered historical markets are context only and should not be scored.',
       ...((specialInstructionsByPath[router.analysis_path as string] || specialInstructionsByPath.generic_fallback) as string[]),
@@ -708,7 +809,8 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
     description: String(event.description || ''),
     resolution_source: String(event.resolutionSource || ''),
     start_date: event.startDate || null,
-    end_date: event.endDate || null,
+    end_date: primaryDeadline,
+    deadline_context: deadlineContext,
     market_count: orderedMarkets.length,
     total_market_count: allMarkets.length,
     filtered_out_market_count: filteredOutMarkets.length,
@@ -733,6 +835,18 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
     analysisPlan.sports_profile && typeof analysisPlan.sports_profile === 'object'
       ? (analysisPlan.sports_profile as Partial<SportsProfile>)
       : {}
+  const weatherResolutionSpec =
+    analysisPlan.weather_resolution_spec && typeof analysisPlan.weather_resolution_spec === 'object'
+      ? (analysisPlan.weather_resolution_spec as Record<string, any>)
+      : null
+  const weatherProfile =
+    analysisPlan.weather_profile && typeof analysisPlan.weather_profile === 'object'
+      ? (analysisPlan.weather_profile as Record<string, any>)
+      : null
+  const weatherSettlementRisk =
+    analysisPlan.weather_settlement_risk && typeof analysisPlan.weather_settlement_risk === 'object'
+      ? (analysisPlan.weather_settlement_risk as Record<string, any>)
+      : null
   const reportableMarkets = Array.isArray(analysisPlan.reportable_markets) ? analysisPlan.reportable_markets : []
   const title = String(event.title || analysisPlan.event_title || '').trim()
   const description = String(event.description || '').trim()
@@ -745,6 +859,10 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
       : typeof event.endDate === 'string'
         ? event.endDate
         : null
+  const deadlineContext =
+    analysisPlan.deadline_context && typeof analysisPlan.deadline_context === 'object'
+      ? (analysisPlan.deadline_context as DeadlineContext)
+      : buildDeadlineContext(primaryDeadline)
 
   function cleanText(value: unknown) {
     return String(value || '')
@@ -804,6 +922,21 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
     } else if (path === 'sports_competition') {
       queries.push([notes.team_label || baseTopic, notes.league_name, 'injury standings schedule'].filter(Boolean).join(' '))
       queries.push([notes.team_label || baseTopic, notes.outcome_terms, 'latest'].filter(Boolean).join(' '))
+    } else if (path === 'weather_station_bucket') {
+      queries.push([notes.weather_location || baseTopic, notes.weather_variable, 'official forecast hourly'].filter(Boolean).join(' '))
+      queries.push([notes.weather_location || baseTopic, notes.weather_source_name, 'station observations'].filter(Boolean).join(' '))
+    } else if (path === 'weather_accumulation_bucket') {
+      queries.push([notes.weather_location || baseTopic, notes.weather_variable, 'monthly climate summary'].filter(Boolean).join(' '))
+      queries.push([notes.weather_location || baseTopic, 'official precipitation outlook'].filter(Boolean).join(' '))
+    } else if (path === 'weather_first_occurrence_race') {
+      queries.push([baseTopic, notes.weather_variable, 'daily climate report'].filter(Boolean).join(' '))
+      queries.push([baseTopic, 'official snow forecast'].filter(Boolean).join(' '))
+    } else if (path === 'tropical_cyclone_event') {
+      queries.push([baseTopic, 'NHC tropical weather outlook'].filter(Boolean).join(' '))
+      queries.push([baseTopic, 'official storm update'].filter(Boolean).join(' '))
+    } else if (path === 'climate_index_numeric') {
+      queries.push([baseTopic, 'official dataset latest'].filter(Boolean).join(' '))
+      queries.push([baseTopic, 'climate outlook official'].filter(Boolean).join(' '))
     } else {
       queries.push([baseTopic, 'latest official Reuters'].filter(Boolean).join(' '))
       queries.push([baseTopic, 'latest update'].filter(Boolean).join(' '))
@@ -817,6 +950,11 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
     if (path === 'numeric_market') return unique([notes.numeric_label || notes.core_entity, notes.threshold_text, 'price']).join(' ')
     if (path === 'competitive_multi_outcome') return unique([notes.core_entity, 'odds', 'poll']).join(' ')
     if (path === 'sports_competition') return unique([notes.team_label || notes.core_entity, notes.outcome_terms, notes.league_name]).join(' ')
+    if (path === 'weather_station_bucket') return unique([notes.weather_location, notes.weather_variable, 'official forecast']).join(' ')
+    if (path === 'weather_accumulation_bucket') return unique([notes.weather_location, notes.weather_variable, 'climate summary']).join(' ')
+    if (path === 'weather_first_occurrence_race') return unique([notes.core_entity, notes.weather_variable, 'daily climate report']).join(' ')
+    if (path === 'tropical_cyclone_event') return unique([notes.core_entity, 'NHC', 'official']).join(' ')
+    if (path === 'climate_index_numeric') return unique([notes.core_entity, 'official dataset']).join(' ')
     return unique([notes.core_entity, 'latest']).join(' ')
   }
 
@@ -903,6 +1041,7 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
   let structuredReason = 'No structured source pack configured for this market path.'
   let retrievalMode = 'news_plus_search'
   let secondaryStructuredUrls: string[] = []
+  let weatherContext: Record<string, unknown> | null = null
 
   if (analysisPath === 'numeric_market' && cryptoMatch) {
     structuredProvider = 'coingecko'
@@ -928,6 +1067,31 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
         `https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=${encodeURIComponent(leagueId)}`,
       ]
     }
+  } else if (
+    analysisPath === 'weather_station_bucket' ||
+    analysisPath === 'weather_accumulation_bucket' ||
+    analysisPath === 'weather_first_occurrence_race' ||
+    analysisPath === 'tropical_cyclone_event' ||
+    analysisPath === 'climate_index_numeric'
+  ) {
+    structuredProvider = 'weather_official'
+    retrievalMode = 'official_weather_plus_search'
+    if (weatherResolutionSpec && weatherProfile && weatherSettlementRisk) {
+      const nextWeatherContext = buildWeatherStructuredContext(
+        analysisPath as WeatherAnalysisPath,
+        weatherResolutionSpec as any,
+        weatherProfile as any,
+        weatherSettlementRisk as any
+      )
+      weatherContext = nextWeatherContext
+      structuredUrl = String(nextWeatherContext.points_url || '')
+      secondaryStructuredUrls = [
+        String(nextWeatherContext.station_observation_url || ''),
+        ...(((nextWeatherContext.official_links as string[] | undefined) || [])),
+      ].filter(Boolean)
+      structuredLabel = `${cleanText(weatherResolutionSpec.variable || analysisPath)} official weather pack`
+      structuredReason = 'Weather market path detected; using settlement-aligned official weather sources.'
+    }
   }
 
   const notes = {
@@ -938,6 +1102,9 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
     team_label: sportsTeam,
     league_name: leagueName,
     outcome_terms: outcomeTerms,
+    weather_location: cleanText(weatherResolutionSpec?.location_name || weatherResolutionSpec?.station_name || '') || null,
+    weather_variable: cleanText(weatherResolutionSpec?.variable || '') || null,
+    weather_source_name: cleanText(weatherResolutionSpec?.resolving_agency || '') || null,
   }
 
   const newsQuery = buildNewsQuery(analysisPath, notes)
@@ -945,6 +1112,14 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
   const newsUrl = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(newsQuery)}&mode=artlist&maxrecords=4&sort=DateDesc&format=json`
   const newsUrlSecondary = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(googleRssUrl)}`
   const searchQueries = buildSearchQueries(analysisPath, baseTopic, notes)
+  const sourceRecencyRule =
+    deadlineContext.urgency === 'critical'
+      ? 'Use sources from the last 24 hours whenever possible. Older reporting is background only unless it is an official rule or filing.'
+      : deadlineContext.urgency === 'near_term'
+        ? 'Prefer sources from the last 72 hours. Older reporting should be treated as context, not decisive evidence.'
+        : deadlineContext.urgency === 'medium_term'
+          ? 'Prefer sources from the last 7 days for time-sensitive claims, while keeping older official documents for rules context.'
+          : 'Prefer the freshest reliable sources, but older official materials may still be primary for rules and structure.'
 
   return {
     analysis_path: analysisPath,
@@ -957,6 +1132,8 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
       'openai_web_search',
     ]),
     retrieval_mode: retrievalMode,
+    deadline_context: deadlineContext,
+    source_recency_rule: sourceRecencyRule,
     news_query: newsQuery,
     news_url: newsUrl,
     news_url_secondary: newsUrlSecondary,
@@ -966,6 +1143,10 @@ function buildRetrievalPlan(event: PlannedEvent): Record<string, unknown> {
     secondary_structured_urls: secondaryStructuredUrls,
     structured_label: structuredLabel || null,
     structured_reason: structuredReason,
+    weather_context: weatherContext,
+    weather_resolution_spec: weatherResolutionSpec,
+    weather_profile: weatherProfile,
+    weather_settlement_risk: weatherSettlementRisk,
     sports_context: {
       team_label: sportsTeam,
       league_name: leagueName,
@@ -1014,6 +1195,8 @@ async function fetchRetrievalPack(plan: Record<string, unknown>): Promise<Record
       standings,
       fixtures,
     }
+  } else if (plan.structured_provider === 'weather_official') {
+    structuredRaw = await fetchWeatherStructuredData(plan)
   } else {
     structuredRaw = {
       provider: 'none',
@@ -1022,6 +1205,105 @@ async function fetchRetrievalPack(plan: Record<string, unknown>): Promise<Record
   }
 
   return assembleRetrievalPack(plan, newsRaw, structuredRaw)
+}
+
+async function fetchWeatherStructuredData(plan: Record<string, unknown>) {
+  const weatherContext =
+    plan.weather_context && typeof plan.weather_context === 'object'
+      ? (plan.weather_context as Record<string, unknown>)
+      : {}
+  const resolutionSpec =
+    plan.weather_resolution_spec && typeof plan.weather_resolution_spec === 'object'
+      ? plan.weather_resolution_spec
+      : null
+  const weatherProfile =
+    plan.weather_profile && typeof plan.weather_profile === 'object'
+      ? plan.weather_profile
+      : null
+  const settlementRisk =
+    plan.weather_settlement_risk && typeof plan.weather_settlement_risk === 'object'
+      ? plan.weather_settlement_risk
+      : null
+
+  const latestObservationUrl = String(weatherContext.station_observation_url || '')
+  const pointsUrl = String(weatherContext.points_url || '')
+
+  const [latestObservationRaw, pointsRaw] = await Promise.all([
+    fetchJsonLoose(latestObservationUrl),
+    fetchJsonLoose(pointsUrl),
+  ])
+
+  const forecastUrl = String(pointsRaw?.properties?.forecast || '')
+  const forecastHourlyUrl = String(pointsRaw?.properties?.forecastHourly || '')
+  const [forecastRaw, forecastHourlyRaw] = await Promise.all([
+    fetchJsonLoose(forecastUrl),
+    fetchJsonLoose(forecastHourlyUrl),
+  ])
+
+  function normalizeObservation(raw: any) {
+    const properties = raw?.properties || {}
+    return raw?.properties
+      ? {
+          timestamp: properties.timestamp || null,
+          temperature_c: properties.temperature?.value ?? null,
+          wind_speed_kph: properties.windSpeed?.value ?? null,
+          wind_direction_deg: properties.windDirection?.value ?? null,
+          text_description: properties.textDescription || null,
+        }
+      : null
+  }
+
+  function normalizeForecast(raw: any) {
+    const periods = Array.isArray(raw?.properties?.periods) ? raw.properties.periods : []
+    return periods.slice(0, 8).map((period: any) => ({
+      name: period.name || null,
+      start_time: period.startTime || null,
+      end_time: period.endTime || null,
+      temperature: period.temperature ?? null,
+      temperature_unit: period.temperatureUnit || null,
+      probability_of_precipitation: period.probabilityOfPrecipitation?.value ?? null,
+      wind_speed: period.windSpeed || null,
+      short_forecast: period.shortForecast || null,
+      detailed_forecast: period.detailedForecast || null,
+    }))
+  }
+
+  function normalizeForecastHourly(raw: any) {
+    const periods = Array.isArray(raw?.properties?.periods) ? raw.properties.periods : []
+    return periods.slice(0, 24).map((period: any) => ({
+      start_time: period.startTime || null,
+      temperature: period.temperature ?? null,
+      temperature_unit: period.temperatureUnit || null,
+      probability_of_precipitation: period.probabilityOfPrecipitation?.value ?? null,
+      short_forecast: period.shortForecast || null,
+    }))
+  }
+
+  return {
+    provider: 'weather_official',
+    status:
+      latestObservationRaw || pointsRaw || forecastRaw || forecastHourlyRaw || resolutionSpec || weatherProfile
+        ? 'ok'
+        : 'empty',
+    resolution_spec: resolutionSpec,
+    weather_profile: weatherProfile,
+    settlement_risk: settlementRisk,
+    official_links: Array.isArray(weatherContext.official_links) ? weatherContext.official_links : [],
+    preferred_products: Array.isArray(weatherContext.preferred_products) ? weatherContext.preferred_products : [],
+    ensemble_sources: Array.isArray(weatherContext.ensemble_sources) ? weatherContext.ensemble_sources : [],
+    latest_observation: normalizeObservation(latestObservationRaw),
+    forecast_periods: normalizeForecast(forecastRaw),
+    forecast_hourly_periods: normalizeForecastHourly(forecastHourlyRaw),
+    points_metadata: pointsRaw?.properties
+      ? {
+          grid_id: pointsRaw.properties.gridId || null,
+          grid_x: pointsRaw.properties.gridX ?? null,
+          grid_y: pointsRaw.properties.gridY ?? null,
+          forecast_zone: pointsRaw.properties.forecastZone || null,
+          county: pointsRaw.properties.county || null,
+        }
+      : null,
+  }
 }
 
 function buildSportsSecondaryPlan(plan: Record<string, unknown>, teamLookup: any) {
@@ -1327,6 +1609,23 @@ function assembleRetrievalPack(plan: Record<string, unknown>, newsRaw: any, stru
       return normalized
     }
 
+    if (provider === 'weather_official') {
+      return {
+        provider: 'weather_official',
+        status: raw?.status || 'empty',
+        resolution_spec: raw?.resolution_spec || null,
+        weather_profile: raw?.weather_profile || null,
+        settlement_risk: raw?.settlement_risk || null,
+        official_links: Array.isArray(raw?.official_links) ? raw.official_links : [],
+        preferred_products: Array.isArray(raw?.preferred_products) ? raw.preferred_products : [],
+        ensemble_sources: Array.isArray(raw?.ensemble_sources) ? raw.ensemble_sources : [],
+        latest_observation: raw?.latest_observation || null,
+        forecast_periods: Array.isArray(raw?.forecast_periods) ? raw.forecast_periods : [],
+        forecast_hourly_periods: Array.isArray(raw?.forecast_hourly_periods) ? raw.forecast_hourly_periods : [],
+        points_metadata: raw?.points_metadata || null,
+      }
+    }
+
     return {
       provider: provider || 'none',
       status: provider && provider !== 'none' ? 'empty' : 'not_requested',
@@ -1341,6 +1640,8 @@ function assembleRetrievalPack(plan: Record<string, unknown>, newsRaw: any, stru
   return {
     source_policy: Array.isArray(plan.source_policy) ? plan.source_policy : [],
     retrieval_mode: plan.retrieval_mode || 'news_plus_search',
+    deadline_context: plan.deadline_context || null,
+    source_recency_rule: plan.source_recency_rule || null,
     search_queries: Array.isArray(plan.search_queries) ? plan.search_queries : [],
     coverage_warning: plan.coverage_warning || null,
     news_pack: {
@@ -1415,4 +1716,65 @@ function extractNumericMatches(text: string) {
     normalizedSuffix: match.suffix || inferredSuffix,
     scaledValue: scaleNumeric(match.value, match.suffix || inferredSuffix),
   }))
+}
+
+function resolvePrimaryDeadline(event: PolymarketEvent): string | null {
+  const candidates = [event.endDate]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.trim())
+
+  if (candidates.length === 0) return null
+
+  const valid = candidates.find((value) => Number.isFinite(Date.parse(value)))
+  return valid || candidates[0]
+}
+
+function buildDeadlineContext(deadlineIso: string | null): DeadlineContext {
+  if (!deadlineIso || !Number.isFinite(Date.parse(deadlineIso))) {
+    return {
+      has_deadline: false,
+      deadline_iso: null,
+      deadline_status: 'none',
+      urgency: 'none',
+      hours_to_deadline: null,
+      days_to_deadline: null,
+      freshness_window_hours: null,
+    }
+  }
+
+  const hoursToDeadline = (Date.parse(deadlineIso) - Date.now()) / (60 * 60 * 1000)
+  const roundedHours = Number(hoursToDeadline.toFixed(1))
+  const roundedDays = Number((hoursToDeadline / 24).toFixed(2))
+
+  let urgency: DeadlineContext['urgency'] = 'long_term'
+  let deadlineStatus: DeadlineContext['deadline_status'] = 'active'
+  let freshnessWindowHours = 336
+
+  if (hoursToDeadline <= 0) {
+    urgency = 'expired'
+    deadlineStatus = 'expired'
+    freshnessWindowHours = 24
+  } else if (hoursToDeadline <= 24) {
+    urgency = 'critical'
+    deadlineStatus = 'critical'
+    freshnessWindowHours = 24
+  } else if (hoursToDeadline <= 72) {
+    urgency = 'near_term'
+    deadlineStatus = 'active'
+    freshnessWindowHours = 72
+  } else if (hoursToDeadline <= 24 * 14) {
+    urgency = 'medium_term'
+    deadlineStatus = 'active'
+    freshnessWindowHours = 24 * 7
+  }
+
+  return {
+    has_deadline: true,
+    deadline_iso: deadlineIso,
+    deadline_status: deadlineStatus,
+    urgency,
+    hours_to_deadline: roundedHours,
+    days_to_deadline: roundedDays,
+    freshness_window_hours: freshnessWindowHours,
+  }
 }

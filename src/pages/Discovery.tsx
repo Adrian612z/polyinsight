@@ -3,10 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 import { useTranslation } from 'react-i18next'
 import {
-  Activity,
   ArrowRight,
   ChevronRight,
-  ExternalLink,
   GitBranch,
   Globe2,
   LineChart,
@@ -15,31 +13,12 @@ import {
   Search,
   ShieldCheck,
   Sparkles,
-  TrendingUp,
 } from 'lucide-react'
 import { api } from '../lib/backend'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { Logo } from '../components/Logo'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useTheme } from '../lib/theme'
-
-interface TrendingMarket {
-  question: string
-  outcomes: string[]
-  prices: number[]
-  volume: number
-}
-
-interface TrendingEvent {
-  slug: string
-  title: string
-  image: string
-  url: string
-  volume: number
-  volume24hr: number
-  endDate: string
-  markets: TrendingMarket[]
-}
 
 interface FeaturedOption {
   name: string
@@ -71,45 +50,10 @@ interface FeaturedAnalysis {
   created_at: string
 }
 
-function formatVolume(v: number): string {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`
-  return `$${v.toFixed(0)}`
-}
-
 function formatPercent(value: number | null | undefined): string {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—'
   const rounded = Math.round(value * 10) / 10
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`
-}
-
-function getOutcomeSummary(market: TrendingMarket) {
-  const limit = Math.min(market.outcomes.length, market.prices.length)
-  if (limit === 0) return null
-
-  const ranked = Array.from({ length: limit }, (_, index) => ({
-    name: market.outcomes[index],
-    probability: Math.round(market.prices[index] * 100),
-  })).sort((a, b) => b.probability - a.probability)
-
-  return {
-    leader: ranked[0],
-    top: ranked.slice(0, Math.min(3, ranked.length)),
-  }
-}
-
-function shortLabel(question: string): string {
-  const q = question.replace(/\?$/, '')
-  const priceMatch = q.match(/\$[\d,.]+/)
-  const dateMatch = q.match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}/i)
-  if (priceMatch) return priceMatch[0]
-  if (dateMatch) return dateMatch[0]
-  const cleaned = q
-    .replace(/^Will\s+/i, '')
-    .replace(/^the\s+/i, '')
-    .replace(/^there\s+be\s+/i, '')
-  if (cleaned.length > 35) return cleaned.slice(0, 33) + '...'
-  return cleaned
 }
 
 function categoryLabel(category: string | null, isZh: boolean): string {
@@ -149,6 +93,21 @@ function riskTone(risk: string | undefined): string {
   }
 }
 
+function riskLabel(risk: string | undefined, isZh: boolean): string {
+  switch (risk) {
+    case 'safe':
+      return isZh ? '相对稳健' : 'Lower risk'
+    case 'caution':
+      return isZh ? '需要留意' : 'Use caution'
+    case 'danger':
+      return isZh ? '高风险' : 'High risk'
+    case 'reject':
+      return isZh ? '不建议' : 'Avoid'
+    default:
+      return isZh ? '持续跟踪' : 'Active'
+  }
+}
+
 function getStrongestOption(item: FeaturedAnalysis): { option: FeaturedOption; diff: number } | null {
   const options = item.decision_data?.options
   if (!Array.isArray(options) || options.length === 0) return null
@@ -184,90 +143,89 @@ function getDiscoveryCopy(isZh: boolean) {
       navDashboard: '进入工作台',
       navSignIn: '登录',
       hero: {
-        eyebrow: 'Prediction Market Intelligence Desk',
+        eyebrow: 'Polymarket 研究助手',
         title: 'AI洞悉',
         highlight: '市场错价',
         subtitle:
-          '把复杂事件先压成一张信号卡，帮你快速判断值不值得研究。',
-        placeholder: '粘贴一个 Polymarket 事件链接，直接送进分析工作台...',
-        primary: '开始分析',
-        secondary: '了解分析方式',
-        freeCredits: '新用户免费三个积分，邀请激励丰厚，快邀请朋友一起来试试吧。',
-        marks: ['按市场结构分流', '市场价 vs AI 概率', '四段渐进输出'],
-        panelEyebrow: 'Signal Engine',
-        panelTitle: '不是一句结论，而是一条研究工作流',
+          '把市场价格、事件规则和最新信息放到同一页里，帮你更快判断这个事件值不值得继续研究。',
+        placeholder: '粘贴一个 Polymarket 事件链接，例如 https://polymarket.com/event/...',
+        primary: '分析这个事件',
+        secondary: '看看怎么分析',
+        freeCredits: '新用户可先免费体验 3 次分析，合适再继续深入使用。',
+        marks: ['市场概率对比', '关键信息汇总', '逐步生成结果'],
+        panelEyebrow: '分析会看到什么',
+        panelTitle: '不是一句结论，而是一份能继续往下研究的起点',
         panelItems: [
           {
-            label: 'Routing',
-            value: 'Deadline / Ladder / Numeric / Competitive / Sports',
+            label: '适合分析',
+            value: '政治、体育、加密以及其他时效性强的事件',
           },
           {
-            label: 'Evidence',
-            value: 'Polymarket、Google News、GDELT、CoinGecko、ESPN',
+            label: '重点参考',
+            value: '市场价格、事件规则、相关新闻和相关数据源',
           },
           {
-            label: 'Output',
-            value: '概率比较、风险标签、建议方向、逐步结果',
+            label: '你会得到',
+            value: '概率判断、风险提示、建议方向和逐步结果',
           },
         ],
-        panelStats: ['GPT-5.4 概率与风控', '专项路径分析', '可追踪证据流'],
+        panelStats: ['逐步输出结果', '保留历史记录', '支持多会话并行'],
       },
       opportunities: {
-        eyebrow: 'Opportunity Radar',
-        title: '先看这个错价事件',
+        eyebrow: '精选事件',
+        title: '先看这些值得研究的事件',
         subtitle:
-          '先把后台当前最值得点进去的一张信号卡放大展示，其他错价机会再横向排开。',
-        empty: '当前还没有精选错价卡，等后台信号生成后会自动在这里滚动。',
-        modeLive: '实时信号',
-        stream: '更多机会',
+          '先展示当前最值得点进去的一批事件，帮助你快速找到下一条研究线索。',
+        empty: '当前还没有可展示的精选事件，稍后会自动更新。',
+        modeLive: '持续更新',
+        stream: '更多事件',
         lead: '主信号',
-        score: '错价分',
+        score: '概率差',
         market: '市场',
         ai: 'AI',
-        edge: '偏差',
-        deadline: '截止',
-        direction: '方向',
-        thesis: '判断',
+        edge: '差距',
+        deadline: '到期',
+        direction: '建议方向',
+        thesis: '核心判断',
         analyze: '分析该事件',
         open: '打开市场',
+        carouselHint: '自动轮播，可停留查看',
+        priority: '建议优先查看',
       },
       trust: {
-        eyebrow: 'Analysis Framework',
-        title: '严谨的分析架构',
+        eyebrow: '分析流程',
+        title: '每份报告，都会按这四步往下走',
         subtitle:
-          '前端不只展示“结论”，而是明确告诉用户这套系统为什么可信：模型分工、实时信息源、专项路径和风控校准都在台面上。',
+          '先把题目读对，再独立判断概率，接着专门检查风险和反例，最后才把结论压成一页给你。',
         cards: [
           {
-            title: '模型不是一把梭',
-            body: '概率分析和规则审计分开跑，最终报告再单独收敛，减少同一轮输出里既估概率又写结论导致的过度自信。',
-            chips: ['GPT-5.4 概率分析', 'GPT-5.4 风控审计', 'DeepSeek 结构化输出'],
+            title: '第一步：先读懂题目',
+            body: '先确认它到底在赌什么、何时截止、什么情况算 Yes。题目没读对，后面算得再准也没用。',
+            chips: ['题目定义', '截止时间', '结算条件'],
           },
           {
-            title: '信息源是实时拼装的',
-            body: '不是靠一个陈旧的大知识库，而是把 Polymarket、新闻、结构化行情和体育源拼成当前事件的证据包。',
-            chips: ['Polymarket API', 'Google News / GDELT', 'CoinGecko / ESPN / TheSportsDB'],
+            title: '第二步：先独立算概率',
+            body: '不先跟着盘面跑。先基于新闻、数据和背景信息做一版独立判断，再回头看市场是不是定错价。',
+            chips: ['独立判断', '新闻数据', '价格对比'],
           },
           {
-            title: '不同市场走不同专项流',
-            body: '程序截止日、时间梯子、数值分布、竞争型市场和体育事件都在进入概率分析前先做分型和计划生成。',
-            chips: ['Deadline Procedural', 'Linked Binary Ladder', 'Sports / Numeric / Competitive'],
+            title: '第三步：专门找风险',
+            body: '重点查规则陷阱、反例和时间风险，避免方向看对了，最后却输在结算口径或节点上。',
+            chips: ['规则陷阱', '反例检查', '时间风险'],
           },
           {
-            title: '结果能按步骤被追踪',
-            body: '用户可以看到事件信息提取、概率分析、风险审计和最终报告逐步完成，而不是只看一段黑箱文案。',
-            chips: ['Progressive Result', 'Risk Labels', 'Actionable Direction'],
+            title: '第四步：最后才给结论',
+            body: '把真正有用的结果压成一页：AI 和市场的概率差、风险等级、建议方向，以及接下来该盯什么。',
+            chips: ['概率对比', '风险等级', '建议方向'],
           },
         ],
       },
-      pulse: {
-        eyebrow: 'Market Pulse',
-        title: '当前热门事件',
-        subtitle: '',
-      },
       cta: {
-        title: '把任何事件送进你的研究台',
-        subtitle: '',
-        button: '打开工作台',
+        eyebrow: '开始使用',
+        title: '把你关心的事件贴进来，马上开始分析',
+        subtitle: '支持保存历史、逐步展示结果，并且可以随时回看之前的分析。',
+        button: '进入工作台',
+        chips: ['逐步结果', '历史记录', '多会话分析'],
       },
     }
   }
@@ -276,90 +234,89 @@ function getDiscoveryCopy(isZh: boolean) {
       navDashboard: 'Open Workspace',
       navSignIn: 'Sign In',
     hero: {
-      eyebrow: 'Prediction Market Intelligence Desk',
+      eyebrow: 'Polymarket research assistant',
       title: 'AI spots',
       highlight: 'market mispricings',
       subtitle:
-        'Compress a complex event into a single signal card, so you can quickly judge whether it is worth researching.',
-      placeholder: 'Paste a Polymarket event URL and send it into the workspace...',
-      primary: 'Analyze a Market',
-      secondary: 'How it works',
-      freeCredits: 'New users get 3 free credits, and referral rewards are generous. Invite your friends to try it together.',
-      marks: ['Structure-aware routing', 'Market vs AI probability', '4-stage progressive output'],
-      panelEyebrow: 'Signal Engine',
-      panelTitle: 'More than a verdict. It is a research workflow.',
+        'Bring price, rules, and current information into one view so you can decide faster whether a market deserves deeper research.',
+      placeholder: 'Paste a Polymarket event URL, for example https://polymarket.com/event/...',
+      primary: 'Analyze this market',
+      secondary: 'See how it works',
+      freeCredits: 'New users can try 3 analyses for free before deciding whether to go deeper.',
+      marks: ['Price vs AI view', 'Key context in one place', 'Progressive results'],
+      panelEyebrow: 'What the analysis looks at',
+      panelTitle: 'Not just a verdict. A practical starting point for research.',
       panelItems: [
         {
-          label: 'Routing',
-          value: 'Deadline / Ladder / Numeric / Competitive / Sports',
+          label: 'Best for',
+          value: 'Politics, sports, crypto, and other time-sensitive markets',
         },
         {
-          label: 'Evidence',
-          value: 'Polymarket, Google News, GDELT, CoinGecko, ESPN',
+          label: 'Looks at',
+          value: 'Market pricing, market rules, recent news, and relevant data',
         },
         {
-          label: 'Output',
-          value: 'Probability gaps, risk labels, direction, progressive results',
+          label: 'You get',
+          value: 'Probability judgment, risk flags, suggested direction, and progressive output',
         },
       ],
-      panelStats: ['GPT-5.4 probability + audit', 'Specialized analysis paths', 'Inspectable evidence trail'],
+      panelStats: ['Progressive output', 'Saved history', 'Multi-session runs'],
     },
     opportunities: {
-      eyebrow: 'Opportunity Radar',
-      title: 'Lead with the clearest mispricing',
+      eyebrow: 'Featured markets',
+      title: 'Start with the markets worth a closer look',
       subtitle:
-        'Put the strongest signal in front first. Keep the rest of the opportunity set in a horizontal rail below it.',
-      empty: 'No featured signals are active right now. Once the backend scores new opportunities, they will appear here automatically.',
-      modeLive: 'Live signal',
-      stream: 'More signals',
+        'Show the most interesting opportunities first so users can move quickly into the next market worth researching.',
+      empty: 'No featured markets are available right now. This area will update automatically when new signals appear.',
+      modeLive: 'Live updates',
+      stream: 'More markets',
       lead: 'Lead signal',
-      score: 'Signal score',
+      score: 'Probability gap',
       market: 'Market',
       ai: 'AI',
       edge: 'Gap',
-      deadline: 'Deadline',
-      direction: 'Direction',
-      thesis: 'Thesis',
+      deadline: 'Expires',
+      direction: 'Suggested direction',
+      thesis: 'Key view',
       analyze: 'Analyze this event',
       open: 'Open market',
+      carouselHint: 'Auto-rotating list',
+      priority: 'Suggested first look',
     },
     trust: {
-      eyebrow: 'Analysis Framework',
-      title: 'A rigorous analysis architecture',
+      eyebrow: 'Analysis flow',
+      title: 'Every report follows the same four-step process',
       subtitle:
-        'The product should not only show a conclusion. It should show why the conclusion deserves attention: model separation, live sources, specialized routing, and explicit risk calibration.',
+        'First read the market correctly, then build an independent probability view, pressure-test the risk, and only then compress it into a final call.',
       cards: [
         {
-          title: 'The model stack is separated by job',
-          body: 'Probability estimation, rules audit, and final synthesis are not collapsed into one step, which reduces overconfident all-in-one outputs.',
-          chips: ['GPT-5.4 probability', 'GPT-5.4 risk audit', 'DeepSeek structured report'],
+          title: 'Step 1: Read the market correctly',
+          body: 'Clarify what the market is actually asking, when it closes, and what counts as Yes. If the question is wrong, the rest is noise.',
+          chips: ['Question', 'Deadline', 'Settlement'],
         },
         {
-          title: 'Evidence is assembled live',
-          body: 'Instead of leaning on a stale generic knowledge base, each run builds an event-specific evidence pack from market data, news, and structured feeds.',
-          chips: ['Polymarket API', 'Google News / GDELT', 'CoinGecko / ESPN / TheSportsDB'],
+          title: 'Step 2: Build an independent view',
+          body: 'Start from news, data, and context to form an independent probability estimate before comparing it with the market price.',
+          chips: ['Independent view', 'News + data', 'Price check'],
         },
         {
-          title: 'Markets are routed into specialists',
-          body: 'Deadline procedural, linked ladders, numeric structures, competitive fields, and sports markets each get a different analysis path before probability work starts.',
-          chips: ['Deadline Procedural', 'Linked Binary Ladder', 'Sports / Numeric / Competitive'],
+          title: 'Step 3: Look for failure points',
+          body: 'Check rule traps, counter-cases, and timing risk so a good thesis does not die on settlement details or calendar pressure.',
+          chips: ['Rule traps', 'Counter-case', 'Timing risk'],
         },
         {
-          title: 'Users can inspect the run',
-          body: 'Each session reveals event extraction, probability analysis, risk audit, and reporting progressively instead of hiding everything behind one black-box paragraph.',
-          chips: ['Progressive result', 'Risk labels', 'Actionable direction'],
+          title: 'Step 4: Only then make the call',
+          body: 'Compress the useful output into one view: AI vs market probability, risk level, suggested direction, and what still needs watching.',
+          chips: ['AI vs market', 'Risk level', 'Suggested direction'],
         },
       ],
     },
-    pulse: {
-      eyebrow: 'Market Pulse',
-      title: 'Trending right now',
-      subtitle: '',
-    },
     cta: {
-      title: 'Send any event into the workspace',
-      subtitle: 'The new visual system feels more like a market-intelligence desk, while the original analysis, history, credits, referrals, and transfer flows remain intact.',
-      button: 'Open Workspace',
+      eyebrow: 'Get started',
+      title: 'Paste in a market you care about and start analyzing',
+      subtitle: 'Keep your history, review progressive results, and come back to earlier sessions when you need them.',
+      button: 'Open workspace',
+      chips: ['Progressive output', 'Saved history', 'Multi-session analysis'],
     },
   }
 }
@@ -372,31 +329,11 @@ export const Discovery: React.FC = () => {
   const isZh = i18n.language === 'zh'
   const isDark = resolvedTheme === 'dark'
   const copy = getDiscoveryCopy(isZh)
-  const [events, setEvents] = useState<TrendingEvent[]>([])
   const [featured, setFeatured] = useState<FeaturedAnalysis[]>([])
-  const [trendingLoading, setTrendingLoading] = useState(true)
-  const [trendingDegraded, setTrendingDegraded] = useState(false)
   const [quickUrl, setQuickUrl] = useState('')
 
   useEffect(() => {
     let alive = true
-
-    api.getTrending(12)
-      .then((data) => {
-        if (!alive) return
-        setEvents(Array.isArray(data?.events) ? data.events : [])
-        setTrendingDegraded(Boolean(data?.degraded))
-      })
-      .catch((err) => {
-        console.error('Failed to load trending:', err)
-        if (alive) {
-          setEvents([])
-          setTrendingDegraded(true)
-        }
-      })
-      .finally(() => {
-        if (alive) setTrendingLoading(false)
-      })
 
     api.getFeatured()
       .then((data) => {
@@ -432,7 +369,6 @@ export const Discovery: React.FC = () => {
     .sort((a, b) => getFeaturedSignalStrength(b) - getFeaturedSignalStrength(a))
     .slice(0, 6)
   const showcaseItems = featuredItems.length > 1 ? [...featuredItems, ...featuredItems] : featuredItems
-  const trendingItems = events.slice(0, 6)
   const trustCards = [
     {
       icon: LineChart,
@@ -483,6 +419,12 @@ export const Discovery: React.FC = () => {
                   <Globe2 size={15} />
                   <span>{isZh ? 'EN' : '中文'}</span>
                 </button>
+                <Link
+                  to="/markets"
+                  className="theme-surface-button inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold transition"
+                >
+                  <span>{t('markets.nav.markets')}</span>
+                </Link>
                 {authenticated ? (
                   <Link
                     to="/analyze"
@@ -516,9 +458,9 @@ export const Discovery: React.FC = () => {
                   </div>
 
                   <div className="animate-section-reveal animate-delay-200 max-w-[33rem]">
-                    <h1 className="max-w-[8.5ch] font-serif text-[3rem] leading-[0.92] tracking-[-0.06em] text-charcoal md:text-[4rem] xl:text-[4.45rem]">
+                    <h1 className="max-w-[8.5ch] font-serif text-[3rem] leading-[0.98] tracking-[-0.06em] text-charcoal md:text-[4rem] xl:text-[4.45rem]">
                       {copy.hero.title}
-                      <span className="mt-2 block bg-[linear-gradient(120deg,var(--accent)_0%,var(--accent-violet)_52%,var(--accent-cool)_100%)] bg-clip-text text-transparent">
+                      <span className="mt-2 block pb-[0.08em] bg-[linear-gradient(120deg,var(--accent)_0%,var(--accent-violet)_52%,var(--accent-cool)_100%)] bg-clip-text text-transparent">
                         {copy.hero.highlight}
                       </span>
                     </h1>
@@ -609,7 +551,7 @@ export const Discovery: React.FC = () => {
                             {copy.opportunities.stream}
                           </div>
                           <div className="rounded-full border border-charcoal/10 bg-warm-white/70 px-3 py-1 text-[11px] font-semibold text-charcoal/56 shadow-sm">
-                            {isZh ? '自动滚动 / 可停留' : 'Auto-scroll / hover to pause'}
+                            {copy.opportunities.carouselHint}
                           </div>
                         </div>
                         <div className="relative overflow-hidden rounded-[32px]">
@@ -652,6 +594,11 @@ export const Discovery: React.FC = () => {
                   <h2 className="mt-3 font-serif text-3xl text-charcoal md:text-4xl">
                     {copy.trust.title}
                   </h2>
+                  {copy.trust.subtitle ? (
+                    <p className="mt-4 max-w-3xl text-sm leading-6 text-charcoal/62 md:text-base">
+                      {copy.trust.subtitle}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -683,60 +630,13 @@ export const Discovery: React.FC = () => {
             </div>
           </section>
 
-          <section className="animate-section-reveal animate-delay-700 pt-14 md:pt-20">
-            <div className="container px-5 md:px-6">
-              <div className="mb-8">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-charcoal/40">
-                    {copy.pulse.eyebrow}
-                  </div>
-                  <h2 className="mt-3 flex items-center gap-3 font-serif text-3xl text-charcoal md:text-4xl">
-                    <TrendingUp className="h-6 w-6 text-terracotta" />
-                    <span>{copy.pulse.title}</span>
-                  </h2>
-                </div>
-              </div>
-
-              {trendingLoading ? (
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div key={i} className="premium-card h-72 rounded-[30px] animate-pulse" />
-                  ))}
-                </div>
-              ) : trendingItems.length === 0 ? (
-                <div className="premium-card glass-window rounded-[30px] px-6 py-10 text-center">
-                  <p className="text-sm font-medium text-charcoal/62">
-                    {t('discovery.trending.empty')}
-                  </p>
-                  {trendingDegraded && (
-                    <p className="mt-2 text-xs uppercase tracking-[0.22em] text-charcoal/36">
-                      {isZh ? '实时数据暂时不可用' : 'Live data temporarily unavailable'}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  {trendingItems.map((event) => (
-                    <EventCard
-                      key={event.slug}
-                      event={event}
-                      onAnalyze={() => handleAnalyze(event.url)}
-                      isZh={isZh}
-                      isDark={isDark}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-
           <section className="animate-section-reveal animate-delay-800 pt-14 md:pt-20">
             <div className="container px-5 md:px-6">
               <div className="tech-panel-dark glass-window overflow-hidden rounded-[36px] px-6 py-8 text-white md:px-8 md:py-10">
                 <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
                   <div className="max-w-3xl">
                     <div className="text-[11px] font-semibold uppercase tracking-[0.28em] text-white/45">
-                      Activation
+                      {copy.cta.eyebrow}
                     </div>
                     <h2 className="mt-3 font-serif text-3xl leading-tight md:text-4xl">
                       {copy.cta.title}
@@ -747,10 +647,7 @@ export const Discovery: React.FC = () => {
                       </p>
                     ) : null}
                     <div className="mt-5 flex flex-wrap gap-2">
-                      {(isZh
-                        ? ['渐进结果', '多市场工作流', '真实外部信息源']
-                        : ['Progressive output', 'Multi-market workflow', 'Live external sources']
-                      ).map((item) => (
+                      {copy.cta.chips.map((item) => (
                         <span key={item} className="rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/74">
                           {item}
                         </span>
@@ -793,9 +690,9 @@ const OpportunityShowcaseCard: React.FC<{
   const diff = strongest?.diff ?? item.mispricing_score ?? 0
   const bias = strongest
     ? strongest.option.ai > strongest.option.market
-      ? (isZh ? '市场低估' : 'Market under')
-      : (isZh ? '市场高估' : 'Market over')
-    : (isZh ? '信号' : 'Signal')
+      ? (isZh ? 'AI 高于市场' : 'AI above market')
+      : (isZh ? 'AI 低于市场' : 'AI below market')
+    : (isZh ? '当前信号' : 'Current signal')
   const risk = item.decision_data?.risk
 
   const softPanelClass = isDark
@@ -821,7 +718,7 @@ const OpportunityShowcaseCard: React.FC<{
           </h3>
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${riskTone(risk)}`}>
-          {risk || 'live'}
+          {riskLabel(risk, isZh)}
         </span>
       </div>
 
@@ -896,7 +793,7 @@ const OpportunityShowcaseCard: React.FC<{
 
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-charcoal/8 pt-3">
         <div className="text-xs font-semibold uppercase tracking-[0.16em] text-charcoal/42">
-          {isZh ? '重点观察' : 'Priority signal'}
+          {copy.priority}
         </div>
         <div className="theme-accent-button inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold">
           {copy.analyze}
@@ -904,120 +801,5 @@ const OpportunityShowcaseCard: React.FC<{
         </div>
       </div>
     </button>
-  )
-}
-
-const EventCard: React.FC<{
-  event: TrendingEvent
-  onAnalyze: () => void
-  isZh: boolean
-  isDark: boolean
-}> = ({ event, onAnalyze, isZh, isDark }) => {
-  const topMarkets = event.markets.slice(0, 2)
-  const isSingleMarket = event.markets.length === 1
-  const singleMarket = isSingleMarket ? event.markets[0] : null
-  const summary = singleMarket ? getOutcomeSummary(singleMarket) : null
-
-  return (
-    <article className="premium-card glass-window card-hover flex h-full flex-col rounded-[30px] p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          {event.image && (
-            <img
-              src={event.image}
-              alt=""
-              className="h-12 w-12 rounded-2xl object-cover"
-            />
-          )}
-          <div>
-            <div className="accent-pill inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-charcoal/48">
-              <Activity className="h-3 w-3 text-terracotta" />
-              <span>{formatVolume(event.volume24hr || event.volume)} vol</span>
-            </div>
-            <h3 className="mt-3 line-clamp-2 font-serif text-xl leading-tight text-charcoal">
-              {event.title}
-            </h3>
-          </div>
-        </div>
-      </div>
-
-      <div className="premium-tile mt-5 flex-1 rounded-[24px] p-4">
-        {isSingleMarket && singleMarket && summary ? (
-          <div>
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-charcoal/42">
-                  {isZh ? '主导方向' : 'Leading side'}
-                </div>
-                <div className="mt-2 flex items-end gap-3">
-                  <div className="text-4xl font-semibold text-charcoal">
-                    {summary.leader.probability}%
-                  </div>
-                  <div className="rounded-full bg-[linear-gradient(145deg,rgba(35,201,169,0.18),rgba(79,124,255,0.12))] px-3 py-1 text-sm font-semibold text-charcoal">
-                    {summary.leader.name}
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              {summary.top.map((outcome) => (
-                <div
-                  key={outcome.name}
-                  className={`rounded-2xl border px-3 py-3 ${isDark ? 'border-white/8 bg-white/6' : 'border-charcoal/8 bg-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.92)]'}`}
-                >
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-charcoal/36">
-                    {outcome.name}
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-charcoal">
-                    {outcome.probability}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {topMarkets.map((market, idx) => (
-              <div
-                key={idx}
-                className={`rounded-2xl border px-3 py-3 ${isDark ? 'border-white/8 bg-white/6' : 'border-charcoal/8 bg-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.92)]'}`}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <span className="truncate text-sm font-medium text-charcoal/74" title={market.question}>
-                    {shortLabel(market.question)}
-                  </span>
-                  <span className="text-sm font-semibold text-charcoal">
-                    {Math.round(market.prices[0] * 100)}%
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-5 flex items-center justify-between gap-3 border-t border-charcoal/8 pt-4">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-charcoal/42">
-          {formatVolume(event.volume)} {isZh ? '总量' : 'total'}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onAnalyze}
-            className="theme-contrast-button inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition"
-          >
-            {isZh ? 'AI 分析' : 'Analyze'}
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <a
-            href={event.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="theme-surface-button inline-flex items-center justify-center rounded-2xl px-3 py-2.5 transition"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        </div>
-      </div>
-    </article>
   )
 }

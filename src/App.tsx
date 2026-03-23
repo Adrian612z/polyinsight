@@ -22,6 +22,7 @@ const Layout = lazyNamed(() => import('./components/Layout'), 'Layout')
 const Analyze = lazyNamed(() => import('./pages/Analyze'), 'Analyze')
 const History = lazyNamed(() => import('./pages/History'), 'History')
 const Profile = lazyNamed(() => import('./pages/Profile'), 'Profile')
+const Markets = lazyNamed(() => import('./pages/Markets'), 'Markets')
 
 function App() {
   const { ready, authenticated, user, getAccessToken } = usePrivy()
@@ -96,6 +97,7 @@ function App() {
           <ScrollToTop />
           <Routes>
             <Route path="/" element={<Discovery />} />
+            <Route path="/markets" element={<RouteSuspense><Markets /></RouteSuspense>} />
 
             <Route element={<RouteSuspense><Layout /></RouteSuspense>}>
               <Route

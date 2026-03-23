@@ -268,6 +268,14 @@ export async function requeueStaleRunningJobs(): Promise<number> {
 
   let count = 0
   for (const job of stale as AnalysisJobRecord[]) {
+    const recordStatus = await getAnalysisRecordStatus(job.analysis_record_id)
+
+    if (recordStatus && recordStatus !== 'pending') {
+      await markAnalysisJobFailed(job.id, `Analysis record is already ${recordStatus}; stale job will not be re-queued`)
+      count += 1
+      continue
+    }
+
     const maxAttemptsReached = job.attempts >= job.max_attempts
     if (maxAttemptsReached) {
       await markAnalysisJobFailed(job.id, 'Worker lock expired and max attempts reached')
@@ -332,6 +340,17 @@ export async function updateAnalysisPartialResult(recordId: string, partialResul
 
 export function createAnalysisWorkerId(): string {
   return `worker:${process.pid}:${randomUUID()}`
+}
+
+async function getAnalysisRecordStatus(recordId: string): Promise<AnalysisJobStatus | 'pending' | null> {
+  const { data, error } = await supabase
+    .from('analysis_records')
+    .select('status')
+    .eq('id', recordId)
+    .maybeSingle()
+
+  if (error) throw error
+  return (data?.status as AnalysisJobStatus | 'pending' | null) || null
 }
 
 function isMissingClaimRpc(error: {

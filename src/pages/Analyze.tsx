@@ -57,7 +57,7 @@ export const Analyze: React.FC = () => {
     if (!privyUserId) return
 
     const res = await startAnalysis()
-    if (res.success) {
+    if (res.success && !res.silent) {
       toast.info(res.message || t('analyze.toast.started'))
     } else if (res.message) {
       toast.error(res.message)

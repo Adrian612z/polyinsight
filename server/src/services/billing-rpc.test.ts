@@ -29,7 +29,7 @@ describe('billing review RPC integration', () => {
         user_id: 'user-1',
         plan_id: 'monthly',
         status: 'approved',
-        expected_amount_tokens: 39.9,
+        expected_amount_tokens: 20,
         expected_credits: 6000,
       },
       subscription: {
