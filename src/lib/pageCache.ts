@@ -16,9 +16,19 @@ export interface CachedCreditTx {
   created_at: string
 }
 
+export interface CachedCheckInStatus {
+  streak: number
+  checkedInToday: boolean
+  lastCheckInOn: string | null
+  nextRewardIn: number
+  rewardAmount: number
+  cycle: number
+}
+
 export interface CachedProfileData {
   referralInfo: CachedReferralInfo | null
   creditHistory: CachedCreditTx[]
+  checkInStatus: CachedCheckInStatus | null
 }
 
 export interface CachedAnalysisRecord {
@@ -88,14 +98,16 @@ export function setCachedHistoryPage(userId: string, page: number, limit: number
 }
 
 export async function fetchAndCacheProfileData(userId: string) {
-  const [refInfo, creditData] = await Promise.all([
+  const [refInfo, creditData, checkInStatus] = await Promise.all([
     api.getReferralInfo().catch(() => null),
     api.getCreditHistory().catch(() => ({ transactions: [] as CachedCreditTx[] })),
+    api.getCheckInStatus().catch(() => null),
   ])
 
   const nextData: CachedProfileData = {
     referralInfo: refInfo,
     creditHistory: creditData?.transactions || [],
+    checkInStatus: checkInStatus || null,
   }
 
   setCachedProfileData(userId, nextData)

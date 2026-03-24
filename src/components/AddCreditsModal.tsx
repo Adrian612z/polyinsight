@@ -77,7 +77,7 @@ export const AddCreditsModal: React.FC<AddCreditsModalProps> = ({
       price: t('addCredits.plan.monthly.price'),
       description: t('addCredits.plan.monthly.description'),
       summary: t('addCredits.plan.monthly.summary'),
-      fixedAmount: 39.9,
+      fixedAmount: 20,
       recommended: true,
     },
     {

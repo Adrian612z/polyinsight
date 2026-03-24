@@ -7,6 +7,7 @@ import { config } from '../config.js'
 import { extractPolymarketSlug, isValidPolymarketUrl, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
 import { getActiveSubscription } from '../services/billing.js'
 import { cancelAnalysisJobByRecord, enqueueAnalysisJob } from '../services/analysisJobs.js'
+import { buildAnalysisFlowView } from '../services/analysisFlow.js'
 
 const router = Router()
 
@@ -192,10 +193,77 @@ router.get('/:id/poll', authMiddleware, async (req: Request, res: Response) => {
       return
     }
 
-    res.json(data)
+    const { data: jobs, error: jobsError } = await supabase
+      .from('analysis_jobs')
+      .select('id, status, attempts, max_attempts, last_error, locked_by, locked_at, started_at, finished_at, created_at, updated_at')
+      .eq('analysis_record_id', req.params.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (jobsError) throw jobsError
+
+    const latestJob = Array.isArray(jobs) && jobs.length > 0 ? jobs[0] : null
+    const flow = buildAnalysisFlowView({
+      recordStatus: data.status as 'pending' | 'completed' | 'failed' | 'cancelled',
+      analysisResult: data.analysis_result,
+      jobStatus: latestJob?.status || null,
+      jobError: latestJob?.last_error || null,
+    })
+
+    res.json({
+      ...data,
+      error: latestJob?.last_error || null,
+      latest_job: latestJob,
+      flow,
+    })
   } catch (err) {
     console.error('Poll error:', err)
     res.status(500).json({ error: 'Failed to poll analysis' })
+  }
+})
+
+router.get('/:id/detail', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!
+    const { data, error } = await supabase
+      .from('analysis_records')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) {
+      res.status(404).json({ error: 'Record not found' })
+      return
+    }
+
+    const { data: jobs, error: jobsError } = await supabase
+      .from('analysis_jobs')
+      .select('id, status, attempts, max_attempts, last_error, locked_by, locked_at, started_at, finished_at, created_at, updated_at')
+      .eq('analysis_record_id', req.params.id)
+      .order('created_at', { ascending: false })
+
+    if (jobsError) throw jobsError
+
+    const latestJob = Array.isArray(jobs) && jobs.length > 0 ? jobs[0] : null
+    const flow = buildAnalysisFlowView({
+      recordStatus: data.status as 'pending' | 'completed' | 'failed' | 'cancelled',
+      analysisResult: data.analysis_result,
+      jobStatus: latestJob?.status || null,
+      jobError: latestJob?.last_error || null,
+    })
+
+    res.json({
+      analysis: data,
+      latest_job: latestJob,
+      jobs: jobs || [],
+      flow,
+      error: latestJob?.last_error || null,
+    })
+  } catch (err) {
+    console.error('Detail error:', err)
+    res.status(500).json({ error: 'Failed to fetch analysis detail' })
   }
 })
 

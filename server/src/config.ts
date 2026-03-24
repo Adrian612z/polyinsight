@@ -49,6 +49,9 @@ export const config = {
   signupBonus: 300,
   // Referral commission rate (10%)
   referralCommissionRate: 0.10,
+  dailyCheckinCycle: parseInt(process.env.DAILY_CHECKIN_CYCLE || '3'),
+  dailyCheckinReward: parseInt(process.env.DAILY_CHECKIN_REWARD || '100'),
+  dailyCheckinTimezone: process.env.DAILY_CHECKIN_TIMEZONE || 'Asia/Shanghai',
 
   adminPassword: requireEnv('ADMIN_PASSWORD'),
   adminJwtSecret: requireEnv('ADMIN_JWT_SECRET'),
@@ -59,6 +62,7 @@ export const config = {
   analysisWorkerPollMs: parseInt(process.env.ANALYSIS_WORKER_POLL_MS || '2000'),
   analysisWorkerHeartbeatMs: parseInt(process.env.ANALYSIS_WORKER_HEARTBEAT_MS || '15000'),
   analysisJobLockMs: parseInt(process.env.ANALYSIS_JOB_LOCK_MS || String(30 * 60 * 1000)),
+  analysisJobMaxRuntimeMs: parseInt(process.env.ANALYSIS_JOB_MAX_RUNTIME_MS || String(20 * 60 * 1000)),
   analysisMaxActiveJobsPerUser: parseInt(process.env.ANALYSIS_MAX_ACTIVE_JOBS_PER_USER || '3'),
 
   analysisCodeApiKey: optionalEnv('ANALYSIS_CODE_API_KEY'),

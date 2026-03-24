@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { api } from '../lib/backend'
 import { useAuthStore } from './authStore'
 import i18n from '../i18n'
+import type { AnalysisFlowView } from '../lib/analysisFlow'
 
 // --- Types ---
 
@@ -14,8 +15,10 @@ export interface AnalysisSession {
   result: string | null
   partialResult: string | null
   error: string | null
+  flow: AnalysisFlowView | null
   canRetry: boolean
   startedAt: number
+  isOptimistic?: boolean
 }
 
 interface AnalysisState {
@@ -26,9 +29,9 @@ interface AnalysisState {
 
 interface AnalysisActions {
   setUrl: (url: string) => void
-  startAnalysis: () => Promise<{ success: boolean; message?: string; recordId?: string }>
+  startAnalysis: () => Promise<{ success: boolean; message?: string; recordId?: string; silent?: boolean }>
   cancelAnalysis: (recordId?: string) => Promise<void>
-  retrySession: (recordId: string) => Promise<{ success: boolean; message?: string }>
+  retrySession: (recordId: string) => Promise<{ success: boolean; message?: string; silent?: boolean }>
   removeSession: (recordId: string) => void
   setActiveSession: (recordId: string | null) => void
   reset: () => void
@@ -48,6 +51,11 @@ const MAX_CONSECUTIVE_POLL_ERRORS = 5
 const pollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const lastProgress = new Map<string, { result: string | null; time: number }>()
 const pollErrorCounts = new Map<string, number>()
+const abandonedOptimisticSessions = new Set<string>()
+
+function createOptimisticSessionId() {
+  return `optimistic:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
+}
 
 function stopSessionPolling(recordId: string) {
   const timer = pollTimers.get(recordId)
@@ -98,6 +106,7 @@ function startPollingForSession(recordId: string) {
             ...session,
             status: 'failed' as const,
             error: getTimeoutMessage(session.partialResult),
+            flow: session.flow,
             canRetry: true,
           },
         },
@@ -119,6 +128,8 @@ function startPollingForSession(recordId: string) {
               status: 'completed' as const,
               result: data.analysis_result,
               partialResult: null,
+              error: data.error || null,
+              flow: data.flow || session.flow,
             },
           },
         })
@@ -133,7 +144,8 @@ function startPollingForSession(recordId: string) {
             [recordId]: {
               ...session,
               status: 'failed' as const,
-              error: getTimeoutMessage(session.partialResult),
+              error: data.error || getTimeoutMessage(session.partialResult),
+              flow: data.flow || session.flow,
               canRetry: true,
             },
           },
@@ -149,7 +161,8 @@ function startPollingForSession(recordId: string) {
             [recordId]: {
               ...session,
               status: 'cancelled' as const,
-              error: null,
+              error: data.error || null,
+              flow: data.flow || session.flow,
               canRetry: true,
             },
           },
@@ -166,7 +179,23 @@ function startPollingForSession(recordId: string) {
         useAnalysisStore.setState({
           sessions: {
             ...useAnalysisStore.getState().sessions,
-            [recordId]: { ...useAnalysisStore.getState().sessions[recordId], partialResult: data.analysis_result },
+            [recordId]: {
+              ...useAnalysisStore.getState().sessions[recordId],
+              partialResult: data.analysis_result,
+              error: data.error || null,
+              flow: data.flow || useAnalysisStore.getState().sessions[recordId]?.flow || null,
+            },
+          },
+        })
+      } else if (data.flow) {
+        useAnalysisStore.setState({
+          sessions: {
+            ...useAnalysisStore.getState().sessions,
+            [recordId]: {
+              ...useAnalysisStore.getState().sessions[recordId],
+              error: data.error || null,
+              flow: data.flow,
+            },
           },
         })
       }
@@ -186,6 +215,7 @@ function startPollingForSession(recordId: string) {
               ...session,
               status: 'failed' as const,
               error: i18n.t('store.error.backendUnavailable'),
+              flow: session.flow,
               canRetry: true,
             },
           },
@@ -228,6 +258,9 @@ export const useAnalysisStore = create<AnalysisStore>()(
       removeSession: (recordId) => {
         stopSessionPolling(recordId)
         const { sessions, activeSessionId } = get()
+        if (sessions[recordId]?.isOptimistic) {
+          abandonedOptimisticSessions.add(recordId)
+        }
         const next = { ...sessions }
         delete next[recordId]
         set({
@@ -243,6 +276,10 @@ export const useAnalysisStore = create<AnalysisStore>()(
 
         stopSessionPolling(targetId)
 
+        if (sessions[targetId].isOptimistic) {
+          abandonedOptimisticSessions.add(targetId)
+        }
+
         set({
           sessions: {
             ...get().sessions,
@@ -254,6 +291,10 @@ export const useAnalysisStore = create<AnalysisStore>()(
           },
         })
 
+        if (sessions[targetId].isOptimistic) {
+          return
+        }
+
         try {
           await api.cancelAnalysis(targetId)
         } catch (err) {
@@ -262,17 +303,36 @@ export const useAnalysisStore = create<AnalysisStore>()(
       },
 
       startAnalysis: async () => {
-        const { inputUrl } = get()
+        const { inputUrl, sessions } = get()
+        const submittedUrl = inputUrl.trim()
 
-        if (!inputUrl) {
+        if (!submittedUrl) {
           return { success: false, message: i18n.t('store.error.noUrl') }
         }
 
-        // Clear input immediately so user can type next URL
-        set({ inputUrl: '' })
+        const optimisticId = createOptimisticSessionId()
+        const startedAt = Date.now()
+        const optimisticSession: AnalysisSession = {
+          id: optimisticId,
+          url: submittedUrl,
+          status: 'polling',
+          result: null,
+          partialResult: null,
+          error: null,
+          flow: null,
+          canRetry: false,
+          startedAt,
+          isOptimistic: true,
+        }
+
+        set({
+          inputUrl: '',
+          sessions: { ...sessions, [optimisticId]: optimisticSession },
+          activeSessionId: optimisticId,
+        })
 
         try {
-          const res = await api.createAnalysis(inputUrl, i18n.language)
+          const res = await api.createAnalysis(submittedUrl, i18n.language)
           const recordId = res.record_id
 
           // Update credit balance
@@ -280,21 +340,40 @@ export const useAnalysisStore = create<AnalysisStore>()(
             useAuthStore.getState().setCreditBalance(res.remaining_balance)
           }
 
-          // Create new session
+          if (abandonedOptimisticSessions.has(optimisticId)) {
+            abandonedOptimisticSessions.delete(optimisticId)
+            try {
+              await api.cancelAnalysis(recordId)
+            } catch (cancelErr) {
+              console.error('Failed to cancel analysis record after local abort:', cancelErr)
+            }
+            return { success: true, recordId, silent: true }
+          }
+
+          const currentState = get()
+          const nextSessions = { ...currentState.sessions }
+          const currentOptimisticSession = nextSessions[optimisticId]
+          if (currentOptimisticSession) {
+            delete nextSessions[optimisticId]
+          }
+
           const session: AnalysisSession = {
+            ...(currentOptimisticSession || optimisticSession),
             id: recordId,
-            url: inputUrl,
+            url: submittedUrl,
             status: 'polling',
             result: null,
             partialResult: null,
             error: null,
+            flow: null,
             canRetry: false,
-            startedAt: Date.now(),
+            startedAt,
+            isOptimistic: false,
           }
 
           set({
-            sessions: { ...get().sessions, [recordId]: session },
-            activeSessionId: recordId,
+            sessions: { ...nextSessions, [recordId]: session },
+            activeSessionId: currentState.activeSessionId === optimisticId ? recordId : currentState.activeSessionId,
           })
 
           // Start polling
@@ -303,8 +382,16 @@ export const useAnalysisStore = create<AnalysisStore>()(
           return { success: true, message: 'Analysis started...', recordId }
         } catch (err: unknown) {
           console.error('Analysis error:', err)
-          // Restore URL on failure so user doesn't lose it
-          set({ inputUrl: inputUrl })
+          const currentState = get()
+          const nextSessions = { ...currentState.sessions }
+          delete nextSessions[optimisticId]
+          abandonedOptimisticSessions.delete(optimisticId)
+
+          set({
+            inputUrl: currentState.inputUrl || submittedUrl,
+            sessions: nextSessions,
+            activeSessionId: currentState.activeSessionId === optimisticId ? null : currentState.activeSessionId,
+          })
 
           const error = err as Error & { status?: number; code?: string }
           let errorMsg = error.message || 'Request failed'
@@ -339,8 +426,12 @@ export const useAnalysisStore = create<AnalysisStore>()(
       name: 'analysis-storage',
       partialize: (state) => ({
         inputUrl: state.inputUrl,
-        sessions: state.sessions,
-        activeSessionId: state.activeSessionId,
+        sessions: Object.fromEntries(
+          Object.entries(state.sessions).filter(([, session]) => !session.isOptimistic)
+        ),
+        activeSessionId: state.activeSessionId && !state.sessions[state.activeSessionId]?.isOptimistic
+          ? state.activeSessionId
+          : null,
       }),
       merge: (persisted, current) => {
         const p = (persisted || {}) as Record<string, unknown>

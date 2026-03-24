@@ -1,4 +1,5 @@
 const API_BASE = '/api'
+import type { AnalysisFlowView } from './analysisFlow'
 
 // Module-scoped token storage (not exposed on window)
 let _privyToken: string | null = null
@@ -96,6 +97,9 @@ export const api = {
   pollAnalysis: (recordId: string) =>
     apiRequest(`/analysis/${recordId}/poll`),
 
+  getAnalysisDetail: (recordId: string) =>
+    apiRequest(`/analysis/${recordId}/detail`),
+
   cancelAnalysis: (recordId: string) =>
     apiRequest(`/analysis/${recordId}/cancel`, { method: 'POST' }),
 
@@ -105,6 +109,12 @@ export const api = {
   // Credits
   getCreditHistory: (page = 1) =>
     apiRequest(`/credits/history?page=${page}`),
+
+  getCheckInStatus: () =>
+    apiRequest('/credits/check-in'),
+
+  checkIn: () =>
+    apiRequest('/credits/check-in', { method: 'POST' }),
 
   // Referral
   getReferralInfo: () => apiRequest('/referral/info'),
@@ -116,6 +126,27 @@ export const api = {
   // Trending (public, live from Polymarket)
   getTrending: (limit = 12) =>
     publicRequest(`/trending?limit=${limit}`),
+
+  // Market terminal (public)
+  getMarkets: (params: {
+    category?: string
+    q?: string
+    sort?: string
+    page?: number
+    pageSize?: number
+  }) => {
+    const search = new URLSearchParams()
+    if (params.category) search.set('category', params.category)
+    if (params.q) search.set('q', params.q)
+    if (params.sort) search.set('sort', params.sort)
+    if (params.page) search.set('page', String(params.page))
+    if (params.pageSize) search.set('pageSize', String(params.pageSize))
+    const suffix = search.toString()
+    return publicRequest(`/markets${suffix ? `?${suffix}` : ''}`)
+  },
+
+  getMarket: (marketSlug: string) =>
+    publicRequest(`/markets/${encodeURIComponent(marketSlug)}`),
 
   // Wallet
   getOrCreateWallet: () =>
@@ -144,4 +175,11 @@ export const api = {
     amount: string
     billing_order_id?: string
   }) => apiRequest('/transactions', { method: 'POST', body: JSON.stringify(body) }),
+}
+
+export type AnalysisPollResponse = {
+  status: 'pending' | 'completed' | 'failed' | 'cancelled'
+  analysis_result: string | null
+  error?: string | null
+  flow?: AnalysisFlowView | null
 }

@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Send, Loader2, AlertCircle, RefreshCw, Sparkles, X, StopCircle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { DecisionCard } from '../components/DecisionCard'
-import { ProgressiveResult } from '../components/ProgressiveResult'
+import { AnalysisFlowPanel } from '../components/AnalysisFlowPanel'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore, useSessionList, type AnalysisSession } from '../store/analysisStore'
 import { useToast } from '../components/Toast'
@@ -57,7 +57,7 @@ export const Analyze: React.FC = () => {
     if (!privyUserId) return
 
     const res = await startAnalysis()
-    if (res.success) {
+    if (res.success && !res.silent) {
       toast.info(res.message || t('analyze.toast.started'))
     } else if (res.message) {
       toast.error(res.message)
@@ -230,8 +230,8 @@ const SessionCard: React.FC<SessionCardProps> = ({
           {/* Polling: show progress */}
           {isPolling && (
             <div className="pt-4 space-y-4">
-              {session.partialResult ? (
-                <ProgressiveResult partialResult={session.partialResult} />
+              {session.flow ? (
+                <AnalysisFlowPanel flow={session.flow} />
               ) : (
                 <div className="workspace-subpanel rounded-[24px] text-center py-8">
                   <Sparkles className="h-6 w-6 text-terracotta animate-pulse mx-auto" />
@@ -256,6 +256,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
           {isCompleted && session.result && (
             <div className="pt-4 space-y-4">
               <DecisionCard result={session.result} eventUrl={session.url} />
+              <AnalysisFlowPanel flow={session.flow} title={t('analysisFlow.panelTitle', 'Analysis flow')} compact />
               <div className="flex justify-center">
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove() }}
@@ -290,7 +291,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               {session.partialResult && (
                 <div className="opacity-60">
                   <p className="text-xs text-charcoal/40 mb-2">{t('analyze.failed.partialResults')}</p>
-                  <ProgressiveResult partialResult={session.partialResult} stalled />
+                  <AnalysisFlowPanel flow={session.flow} />
                 </div>
               )}
               <div className="flex justify-center">
@@ -311,7 +312,7 @@ const SessionCard: React.FC<SessionCardProps> = ({
               <div className="workspace-subpanel rounded-[24px] text-center py-6 text-sm text-charcoal/48">{t('analyze.cancelled')}</div>
               {session.partialResult && (
                 <div className="opacity-50">
-                  <ProgressiveResult partialResult={session.partialResult} />
+                  <AnalysisFlowPanel flow={session.flow} />
                 </div>
               )}
               <div className="flex justify-center">

@@ -4,7 +4,7 @@ import { usePrivy, useWallets } from '@privy-io/react-auth'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../store/authStore'
 import { useAnalysisStore } from '../store/analysisStore'
-import { LogOut, LayoutDashboard, History, Coins, Compass, User, Plus, Languages } from 'lucide-react'
+import { LogOut, LayoutDashboard, History, Coins, Compass, User, Plus, Languages, List } from 'lucide-react'
 import clsx from 'clsx'
 import { Logo } from './Logo'
 import { AnimatedBackground } from './AnimatedBackground'
@@ -39,6 +39,7 @@ export const Layout: React.FC = () => {
 
   const navItems = [
     { label: t('layout.nav.discover'), path: '/', icon: Compass },
+    { label: t('layout.nav.markets'), path: '/markets', icon: List },
     { label: t('layout.nav.analyze'), path: '/analyze', icon: LayoutDashboard },
     { label: t('layout.nav.history'), path: '/history', icon: History },
   ]
@@ -145,7 +146,7 @@ export const Layout: React.FC = () => {
                       className="theme-surface-button inline-flex max-w-[220px] items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold transition"
                     >
                       <User size={15} />
-                      <span className="truncate">{displayName}</span>
+                      <span>{i18n.language === 'zh' ? '个人主页' : 'Profile'}</span>
                     </Link>
                   )}
 

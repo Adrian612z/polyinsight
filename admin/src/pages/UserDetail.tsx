@@ -115,6 +115,7 @@ export default function UserDetail() {
     admin_grant: '管理员充值',
     topup: '充值',
     refund: '退款',
+    daily_checkin_bonus: '签到奖励',
   }
 
   return (

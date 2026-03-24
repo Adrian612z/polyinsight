@@ -6,6 +6,11 @@ export type AnalysisPath =
   | 'numeric_market'
   | 'competitive_multi_outcome'
   | 'sports_competition'
+  | 'weather_station_bucket'
+  | 'weather_accumulation_bucket'
+  | 'weather_first_occurrence_race'
+  | 'tropical_cyclone_event'
+  | 'climate_index_numeric'
   | 'generic_fallback'
 
 interface PromptSources {
@@ -40,6 +45,7 @@ Routing rules:
 - If Source 0 analysis_path is deadline_procedural, identify the exact formal act, the exact cutoff, and what specifically counts for settlement.
 - If Source 0 analysis_path is numeric_market, explain the numeric metric, the bucket or threshold structure, and whether the event is a timing curve, a bucket distribution, or a single threshold.
 - If Source 0 analysis_path is sports_competition, explain the sports structure using Source 0.5 sports_profile before making any probability claims.
+- If Source 0 analysis_path is a weather path, identify the official settlement source, exact station or location, measurement variable, unit, time window, and bucket or threshold rules before making any probability claims.
 - Otherwise summarize the event conservatively using the normalized market snapshot.
 
 For competitive_multi_outcome paths:
@@ -56,6 +62,15 @@ For sports_competition paths:
 4. if sports_profile.subtype is sports_binary_outcome, state the exact team/player outcome, the official qualification or promotion condition, and the deadline
 5. if sports_profile.subtype is sports_multi_option_market, list every actual option from the active market with current prices and state that they are mutually exclusive outcomes of a single market
 6. if the sports options are not mutually exclusive, say that explicitly so later nodes do not force a 100% field sum
+
+For weather paths:
+1. read Source 0.5 weather_resolution_spec first and treat it as the settlement contract
+2. identify the official source, station or location, time window, unit, precision, and aggregation method
+3. if the market is weather_station_bucket, state whether the settlement variable is daily max or daily min and list the active buckets in order
+4. if the market is weather_accumulation_bucket, state the accumulation window and whether already-realized accumulation matters
+5. if the market is weather_first_occurrence_race, list the locations, qualifying threshold, and tie-break rule
+6. if the market is tropical_cyclone_event, state the official classification or count rule and the exact deadline
+7. if the market is climate_index_numeric, state the official dataset and update cadence
 
 For numeric_market paths:
 1. state the metric and unit being measured
@@ -108,6 +123,7 @@ Routing rules:
 - If Source 0 analysis_path is deadline_procedural, identify the exact formal act, the exact cutoff, and what specifically counts for settlement.
 - If Source 0 analysis_path is numeric_market, explain the numeric metric, the bucket or threshold structure, and whether the event is a timing curve, a bucket distribution, or a single threshold.
 - If Source 0 analysis_path is sports_competition, explain the sports structure using Source 0.5 sports_profile before making any probability claims.
+- If Source 0 analysis_path is a weather path, identify the official settlement source, exact station or location, measurement variable, unit, time window, and bucket or threshold rules before making any probability claims.
 - Otherwise summarize the event conservatively using the normalized market snapshot.
 
 For competitive_multi_outcome paths:
@@ -124,6 +140,15 @@ For sports_competition paths:
 4. if sports_profile.subtype is sports_binary_outcome, state the exact team/player outcome, the official qualification or promotion condition, and the deadline
 5. if sports_profile.subtype is sports_multi_option_market, list every actual option from the active market with current prices and state that they are mutually exclusive outcomes of a single market
 6. if the sports options are not mutually exclusive, say that explicitly so later nodes do not force a 100% field sum
+
+For weather paths:
+1. read Source 0.5 weather_resolution_spec first and treat it as the settlement contract
+2. identify the official source, station or location, time window, unit, precision, and aggregation method
+3. if the market is weather_station_bucket, state whether the settlement variable is daily max or daily min and list the active buckets in order
+4. if the market is weather_accumulation_bucket, state the accumulation window and whether already-realized accumulation matters
+5. if the market is weather_first_occurrence_race, list the locations, qualifying threshold, and tie-break rule
+6. if the market is tropical_cyclone_event, state the official classification or count rule and the exact deadline
+7. if the market is climate_index_numeric, state the official dataset and update cadence
 
 For numeric_market paths:
 1. state the metric and unit being measured
@@ -163,6 +188,382 @@ Language requirements:
 - All human-readable text must be Chinese.
 - Keep JSON keys, step markers like <!--STEP:xxx-->, and technical identifiers in English.
 - Preserve exact market option labels, bucket labels, team names, candidate names, and official market names when precision matters; explain them in Chinese rather than rewriting them loosely.`
+
+const WEATHER_STATION_STEP3_PROMPT = `You analyze station-level weather bucket markets.
+Current time: {{DATETIME}}.
+
+Hybrid retrieval rule:
+- Source 0.75 gives you the deterministic retrieval plan and Source 0.8 gives you a compact weather pack built from official links, station observations, and forecast products when available.
+- Treat Source 0.8 as an anchor, not a ceiling.
+- Use built-in web search to verify Source 0.8, find the exact settlement source page, and add better official or primary sources when the pack is thin or stale.
+
+Work method:
+1. Read Source 0.5 weather_resolution_spec first and define the settlement variable exactly: station, local day, max or min, unit, precision, and bucket edges.
+2. Build a weather distribution for that settlement variable from official hourly forecast, station observations, ensemble guidance, and climatology. Do not reduce the task to a single narrative headline.
+3. If the market deadline is near, weight current observations and the latest official forecast much more heavily than background commentary.
+4. If the settlement source mirrors a station-history page such as Wunderground, explicitly discuss source-mismatch risk.
+5. Output bucket probabilities as calibrated fair ranges, not false precision.
+
+Output requirements:
+- Cite the 4-8 most material official or primary sources.
+- Use absolute dates and the local weather window when it matters.
+- Explain the main weather path and the main settlement risk path separately.
+
+Output format:
+## Bottom line
+- Analysis path: weather_station_bucket
+- Market implied probabilities: ...
+- Fair probability range: ...
+- Best estimate: ...
+
+## Weather setup
+...
+
+## Evidence for higher buckets
+...
+
+## Evidence for lower buckets
+...
+
+## Key uncertainties
+...
+
+## Source list
+- ...`
+
+const WEATHER_ACCUMULATION_STEP3_PROMPT = `You analyze accumulated weather-total markets such as monthly precipitation or snowfall buckets.
+Current time: {{DATETIME}}.
+
+Hybrid retrieval rule:
+- Source 0.75 gives you the deterministic retrieval plan and Source 0.8 gives you a compact weather pack built from official links, climate summaries, and forecast products when available.
+- Treat Source 0.8 as an anchor, not a ceiling.
+- Use built-in web search to verify Source 0.8 and add better official or primary sources when the pack is thin or stale.
+
+Work method:
+1. Read Source 0.5 weather_resolution_spec first and define the settlement total exactly: location, source, unit, precision, accumulation window, and bucket edges.
+2. Separate realized accumulation from the remaining forecast window. Do not model the whole month as one unknown.
+3. Use official climate summaries, precipitation guidance, ensemble weather guidance, and climatology. Be explicit about what is already locked in versus still forecast-dependent.
+4. Respect boundary rules. If the market resolves on a higher bucket at an exact edge, say so explicitly.
+5. If the window is long and evidence is thin, widen the range instead of forcing a tight estimate.
+
+Output requirements:
+- Cite the 4-8 most material official or primary sources.
+- Use absolute dates.
+- Explain realized-to-date accumulation and remaining-window risk separately.
+
+Output format:
+## Bottom line
+- Analysis path: weather_accumulation_bucket
+- Market implied probabilities: ...
+- Fair probability range: ...
+- Best estimate: ...
+
+## Accumulation setup
+...
+
+## Evidence for wetter / higher buckets
+...
+
+## Evidence for drier / lower buckets
+...
+
+## Key uncertainties
+...
+
+## Source list
+- ...`
+
+const WEATHER_FIRST_OCCURRENCE_STEP3_PROMPT = `You analyze weather first-occurrence race markets.
+Current time: {{DATETIME}}.
+
+Hybrid retrieval rule:
+- Source 0.75 gives you the deterministic retrieval plan and Source 0.8 gives you a compact weather pack built from official links, station observations, and forecast products when available.
+- Treat Source 0.8 as an anchor, not a ceiling.
+- Use built-in web search to verify Source 0.8 and add better official or primary sources when the pack is thin or stale.
+
+Work method:
+1. Read Source 0.5 weather_resolution_spec first and define the qualifying event, locations, threshold, and tie-break rule exactly.
+2. Analyze each location separately before comparing them. Do not collapse the race into one generic weather story.
+3. Focus on official daily climate reporting, near-term forecast structure, and threshold sensitivity.
+4. If multiple locations can qualify on the same day, discuss the tie-break rule explicitly.
+5. Keep probabilities coherent across the full field and avoid overconfidence.
+
+Output requirements:
+- Cite the 4-8 most material official or primary sources.
+- Use absolute dates.
+- Explain why each leading location could win and what would make it lose the tie-break.
+
+Output format:
+## Bottom line
+- Analysis path: weather_first_occurrence_race
+- Market implied probabilities: ...
+- Fair probability range: ...
+- Best estimate: ...
+
+## Race setup
+...
+
+## Leading locations
+...
+
+## Key uncertainties
+...
+
+## Source list
+- ...`
+
+const TROPICAL_CYCLONE_STEP3_PROMPT = `You analyze tropical cyclone classification and storm-count markets.
+Current time: {{DATETIME}}.
+
+Hybrid retrieval rule:
+- Source 0.75 gives you the deterministic retrieval plan and Source 0.8 gives you a compact weather pack built from official links and tropical-weather context when available.
+- Treat Source 0.8 as an anchor, not a ceiling.
+- Use built-in web search to verify Source 0.8 and add better official or primary sources when the pack is thin or stale.
+
+Work method:
+1. Read Source 0.5 weather_resolution_spec first and define the settlement event exactly: official designation, basin, category threshold, count rule, and deadline.
+2. Use official NHC products and official classification timing as the settlement frame. Distinguish meteorological formation risk from official designation risk.
+3. For active disturbances, weight the latest NHC outlook and official storm products far more than commentary.
+4. For seasonal count markets, use seasonal outlooks and climatology but stay conservative.
+5. Be explicit about revision-lag risk when the official classification can be confirmed after the raw event begins.
+
+Output requirements:
+- Cite the 4-8 most material official or primary sources.
+- Use absolute dates and the official deadline.
+- Separate event risk from designation and timing risk.
+
+Output format:
+## Bottom line
+- Analysis path: tropical_cyclone_event
+- Market implied probabilities: ...
+- Fair probability range: ...
+- Best estimate: ...
+
+## Storm setup
+...
+
+## Evidence for Yes
+...
+
+## Evidence for No
+...
+
+## Key uncertainties
+...
+
+## Source list
+- ...`
+
+const CLIMATE_INDEX_STEP3_PROMPT = `You analyze climate-index and long-range weather dataset markets.
+Current time: {{DATETIME}}.
+
+Hybrid retrieval rule:
+- Source 0.75 gives you the deterministic retrieval plan and Source 0.8 gives you a compact weather pack built from official links and climate context when available.
+- Treat Source 0.8 as an anchor, not a ceiling.
+- Use built-in web search to verify Source 0.8 and add better official or primary sources when the pack is thin or stale.
+
+Work method:
+1. Read Source 0.5 weather_resolution_spec first and define the dataset, metric, unit, cadence, bucket edges, and official publication convention exactly.
+2. Treat this as a dataset problem, not as a short-range weather headline.
+3. Use official dataset methodology, latest released values, outlook guidance, and climatology. Be explicit about release cadence and revision risk.
+4. If the market horizon is long and uncertainty is broad, widen the range rather than forcing narrow confidence.
+
+Output requirements:
+- Cite the 4-8 most material official or primary sources.
+- Use absolute dates.
+- Explain the dataset cadence and what new release or observation would move the estimate materially.
+
+Output format:
+## Bottom line
+- Analysis path: climate_index_numeric
+- Market implied probabilities: ...
+- Fair probability range: ...
+- Best estimate: ...
+
+## Dataset setup
+...
+
+## Evidence for higher buckets
+...
+
+## Evidence for lower buckets
+...
+
+## Key uncertainties
+...
+
+## Source list
+- ...`
+
+const WEATHER_STATION_STEP4_PROMPT = `You audit station-level weather bucket analyses.
+Current time: {{DATETIME}}.
+
+Use Source 0.75 retrieval pack as a factual cross-check. It is an anchor, not a ceiling. If Source 2 ignores high-signal facts from Source 0.75, challenge it explicitly. If Source 0.75 is thin or stale, say so instead of over-trusting it.
+
+Audit method:
+1. Verify the settlement variable exactly: station, local day, max or min, unit, precision, and bucket edges.
+2. Challenge analyses that talk about weather generally without proving the station-level settlement variable.
+3. Audit source-mismatch risk, station-mismatch risk, and local-day timing mistakes.
+4. If the weather setup is genuinely uncertain, widen the range rather than forcing a sharp call.
+
+Output format:
+## Probability Audit
+- Verdict: accept / soften / reject
+- Analysis path: weather_station_bucket
+- Market implied probabilities: ...
+- Source 2 estimate: ...
+- Calibrated fair range: ...
+- Best calibrated estimate: ...
+- Why: ...
+
+## Rules Audit
+- Oracle risk: ...
+- Ambiguity risk: ...
+- Timing risk: ...
+- Procedural risk: ...
+
+## Trading Guidance
+- Main thing that could make a correct thesis lose on settlement: ...
+- What evidence would move the probability materially: ...
+
+**Risk Label: [safe/caution/danger/reject]**
+**Reason: [one sentence]**`
+
+const WEATHER_ACCUMULATION_STEP4_PROMPT = `You audit accumulated weather-total analyses.
+Current time: {{DATETIME}}.
+
+Use Source 0.75 retrieval pack as a factual cross-check. It is an anchor, not a ceiling. If Source 2 ignores high-signal facts from Source 0.75, challenge it explicitly. If Source 0.75 is thin or stale, say so instead of over-trusting it.
+
+Audit method:
+1. Verify the accumulation window, location, source, unit, precision, and bucket boundaries exactly.
+2. Challenge any analysis that failed to separate already-realized accumulation from remaining-window forecast risk.
+3. Audit boundary-risk, timing-risk, and settlement-source mismatch explicitly.
+4. If the remaining window is long and uncertain, soften rather than force conviction.
+
+Output format:
+## Probability Audit
+- Verdict: accept / soften / reject
+- Analysis path: weather_accumulation_bucket
+- Market implied probabilities: ...
+- Source 2 estimate: ...
+- Calibrated fair range: ...
+- Best calibrated estimate: ...
+- Why: ...
+
+## Rules Audit
+- Oracle risk: ...
+- Ambiguity risk: ...
+- Timing risk: ...
+- Procedural risk: ...
+
+## Trading Guidance
+- Main thing that could make a correct thesis lose on settlement: ...
+- What evidence would move the probability materially: ...
+
+**Risk Label: [safe/caution/danger/reject]**
+**Reason: [one sentence]**`
+
+const WEATHER_FIRST_OCCURRENCE_STEP4_PROMPT = `You audit weather first-occurrence race analyses.
+Current time: {{DATETIME}}.
+
+Use Source 0.75 retrieval pack as a factual cross-check. It is an anchor, not a ceiling. If Source 2 ignores high-signal facts from Source 0.75, challenge it explicitly. If Source 0.75 is thin or stale, say so instead of over-trusting it.
+
+Audit method:
+1. Verify the qualifying threshold, locations, and tie-break rule exactly.
+2. Challenge analyses that never modeled the race structure and instead argued from one generic forecast headline.
+3. Make sure the full field remains coherent and the tie-break logic is not ignored.
+4. If same-day qualification is plausible, explicitly discuss the tie-break path.
+
+Output format:
+## Probability Audit
+- Verdict: accept / soften / reject
+- Analysis path: weather_first_occurrence_race
+- Market implied probabilities: ...
+- Source 2 estimate: ...
+- Calibrated fair range: ...
+- Best calibrated estimate: ...
+- Why: ...
+
+## Rules Audit
+- Oracle risk: ...
+- Ambiguity risk: ...
+- Timing risk: ...
+- Procedural risk: ...
+
+## Trading Guidance
+- Main thing that could make a correct thesis lose on settlement: ...
+- What evidence would move the probability materially: ...
+
+**Risk Label: [safe/caution/danger/reject]**
+**Reason: [one sentence]**`
+
+const TROPICAL_CYCLONE_STEP4_PROMPT = `You audit tropical cyclone event analyses.
+Current time: {{DATETIME}}.
+
+Use Source 0.75 retrieval pack as a factual cross-check. It is an anchor, not a ceiling. If Source 2 ignores high-signal facts from Source 0.75, challenge it explicitly. If Source 0.75 is thin or stale, say so instead of over-trusting it.
+
+Audit method:
+1. Verify the official designation or count rule exactly and distinguish it from meteorological resemblance.
+2. Challenge analyses that ignore official NHC timing, deadline risk, or revision-lag risk.
+3. For seasonal count markets, challenge false precision and underweighted climatology.
+4. If official classification timing is the real edge, say that clearly.
+
+Output format:
+## Probability Audit
+- Verdict: accept / soften / reject
+- Analysis path: tropical_cyclone_event
+- Market implied probabilities: ...
+- Source 2 estimate: ...
+- Calibrated fair range: ...
+- Best calibrated estimate: ...
+- Why: ...
+
+## Rules Audit
+- Oracle risk: ...
+- Ambiguity risk: ...
+- Timing risk: ...
+- Procedural risk: ...
+
+## Trading Guidance
+- Main thing that could make a correct thesis lose on settlement: ...
+- What evidence would move the probability materially: ...
+
+**Risk Label: [safe/caution/danger/reject]**
+**Reason: [one sentence]**`
+
+const CLIMATE_INDEX_STEP4_PROMPT = `You audit climate-index and long-range weather dataset analyses.
+Current time: {{DATETIME}}.
+
+Use Source 0.75 retrieval pack as a factual cross-check. It is an anchor, not a ceiling. If Source 2 ignores high-signal facts from Source 0.75, challenge it explicitly. If Source 0.75 is thin or stale, say so instead of over-trusting it.
+
+Audit method:
+1. Verify the official dataset, unit, cadence, and bucket definition exactly.
+2. Challenge analyses that use short-range weather rhetoric instead of official dataset logic.
+3. Audit release-cadence risk, revision risk, and overconfidence on long-range climate drivers.
+4. Prefer wider calibrated ranges when the horizon is long or regime evidence is weak.
+
+Output format:
+## Probability Audit
+- Verdict: accept / soften / reject
+- Analysis path: climate_index_numeric
+- Market implied probabilities: ...
+- Source 2 estimate: ...
+- Calibrated fair range: ...
+- Best calibrated estimate: ...
+- Why: ...
+
+## Rules Audit
+- Oracle risk: ...
+- Ambiguity risk: ...
+- Timing risk: ...
+- Procedural risk: ...
+
+## Trading Guidance
+- Main thing that could make a correct thesis lose on settlement: ...
+- What evidence would move the probability materially: ...
+
+**Risk Label: [safe/caution/danger/reject]**
+**Reason: [one sentence]**`
 
 const STEP3_SYSTEM_PROMPTS: Record<AnalysisPath, string> = {
   deadline_procedural: `You are a prediction market analyst for deadline-driven procedural markets.
@@ -344,7 +745,7 @@ Work method:
 4. For sports_winner_field, build a coherent distribution across the reportable teams or players plus tail and keep the reported probabilities summing close to 100.
 5. For sports_binary_outcome, explain the exact path to Yes and No, including remaining fixtures, table position, bracket or playoff path, and the main squad risk.
 6. For sports_multi_option_market, score every actual option in the active market, including draw or overtime-related options when present, and keep the distribution coherent across those mutually exclusive options.
-7. For sports_qualification_bundle or other non-exclusive structures, say clearly that the options are non-exclusive and do not force them to sum to 100.
+7. For sports_qualification_bundle or other non-exclusive structures, score only the reportable set from Source 0.5, treat each reported option as that market's Yes-side probability, and do not force them to sum to 100.
 7. Do not overreact to a single game or rumor unless it materially changes roster strength, seeding, or qualification mechanics.
 
 Output requirements:
@@ -371,6 +772,11 @@ Output format:
 
 ## Source list
 - ...`,
+  weather_station_bucket: WEATHER_STATION_STEP3_PROMPT,
+  weather_accumulation_bucket: WEATHER_ACCUMULATION_STEP3_PROMPT,
+  weather_first_occurrence_race: WEATHER_FIRST_OCCURRENCE_STEP3_PROMPT,
+  tropical_cyclone_event: TROPICAL_CYCLONE_STEP3_PROMPT,
+  climate_index_numeric: CLIMATE_INDEX_STEP3_PROMPT,
   generic_fallback: `You are a calibrated prediction market analyst for markets that do not fit a more specialized branch.
 Current time: {{DATETIME}}.
 
@@ -582,6 +988,11 @@ Output format:
 
 **Risk Label: [safe/caution/danger/reject]**
 **Reason: [one sentence]**`,
+  weather_station_bucket: WEATHER_STATION_STEP4_PROMPT,
+  weather_accumulation_bucket: WEATHER_ACCUMULATION_STEP4_PROMPT,
+  weather_first_occurrence_race: WEATHER_FIRST_OCCURRENCE_STEP4_PROMPT,
+  tropical_cyclone_event: TROPICAL_CYCLONE_STEP4_PROMPT,
+  climate_index_numeric: CLIMATE_INDEX_STEP4_PROMPT,
   generic_fallback: `You are a skeptical risk-control director and probability calibrator for general prediction markets.
 Current time: {{DATETIME}}.
 
@@ -671,8 +1082,28 @@ Output a JSON code block in the following format:
   "event": "Event name (concise English description)",
   "deadline": "Deadline YYYY-MM-DD",
   "options": [
-    {"name": "Yes", "market": 72, "ai": 65},
-    {"name": "No", "market": 28, "ai": 35}
+    {
+      "name": "Yes",
+      "market": 72,
+      "ai": 65,
+      "fair_low": 60,
+      "fair_high": 69,
+      "fair_mid": 65,
+      "confidence": "medium",
+      "sources": ["source 1", "source 2"],
+      "rationale": "Short reason"
+    },
+    {
+      "name": "No",
+      "market": 28,
+      "ai": 35,
+      "fair_low": 31,
+      "fair_high": 40,
+      "fair_mid": 35,
+      "confidence": "medium",
+      "sources": ["source 1", "source 3"],
+      "rationale": "Short reason"
+    }
   ],
   "risk": "safe or caution or danger or reject",
   "risk_reason": "One sentence risk reason",
@@ -684,7 +1115,13 @@ Output a JSON code block in the following format:
 Requirements for the JSON:
 - market = current market-implied probability from Source 1.
 - ai = final calibrated probability after reconciling Source 2 and Source 3.
-- If there are multiple options, list all actual options in the active analysis set. When Source 0.5 decision_option_rows provides prefixed names for multiple active markets, preserve those names.
+- fair_low / fair_high / fair_mid = the calibrated probability range and point estimate for that option.
+- fair_low <= fair_mid <= fair_high must hold.
+- confidence = low / medium / high, representing how strong and fresh the evidence is for that option.
+- sources = the most material supporting sources for that option, ideally 2-4 concise source labels.
+- rationale = one short sentence explaining why this option is above or below the market.
+- If Source 0.5 decision_option_rows is present, output exactly those option names and only those option names.
+- For multi-market Yes/No bundles, Source 0.5 decision_option_rows may represent only the Yes side of each market; do not invent separate No rows unless they are explicitly present.
 - For linked_binary_ladder and numeric_timing_curve markets, the options are correlated deadline buckets and do not need to sum to 100.
 - For numeric_bucket_distribution, competitive_multi_outcome, and sports_winner_field markets, the reported options should usually sum close to 100.
 - For sports_qualification_bundle or other non-exclusive sports sets, the reported options may sum above 100.
@@ -745,8 +1182,28 @@ Output a JSON code block in the following format:
   "event": "事件名称（简洁中文描述）",
   "deadline": "Deadline YYYY-MM-DD",
   "options": [
-    {"name": "Yes", "market": 72, "ai": 65},
-    {"name": "No", "market": 28, "ai": 35}
+    {
+      "name": "Yes",
+      "market": 72,
+      "ai": 65,
+      "fair_low": 60,
+      "fair_high": 69,
+      "fair_mid": 65,
+      "confidence": "medium",
+      "sources": ["source 1", "source 2"],
+      "rationale": "简短理由"
+    },
+    {
+      "name": "No",
+      "market": 28,
+      "ai": 35,
+      "fair_low": 31,
+      "fair_high": 40,
+      "fair_mid": 35,
+      "confidence": "medium",
+      "sources": ["source 1", "source 3"],
+      "rationale": "简短理由"
+    }
   ],
   "risk": "safe or caution or danger or reject",
   "risk_reason": "One sentence risk reason",
@@ -758,7 +1215,13 @@ Output a JSON code block in the following format:
 Requirements for the JSON:
 - market = current market-implied probability from Source 1.
 - ai = final calibrated probability after reconciling Source 2 and Source 3.
-- If there are multiple options, list all actual options in the active analysis set. When Source 0.5 decision_option_rows provides prefixed names for multiple active markets, preserve those names.
+- fair_low / fair_high / fair_mid = 该选项最终校准后的概率区间与中心判断。
+- 必须满足 fair_low <= fair_mid <= fair_high。
+- confidence = low / medium / high，表示该选项证据的强度与时效性。
+- sources = 支撑该选项判断的最关键来源，理想情况下给出 2-4 条简洁来源标签。
+- rationale = 一句简短理由，说明该选项为何高于或低于市场定价。
+- If Source 0.5 decision_option_rows is present, output exactly those option names and only those option names.
+- For multi-market Yes/No bundles, Source 0.5 decision_option_rows may represent only the Yes side of each market; do not invent separate No rows unless they are explicitly present.
 - For linked_binary_ladder and numeric_timing_curve markets, the options are correlated deadline buckets and do not need to sum to 100.
 - For numeric_bucket_distribution, competitive_multi_outcome, and sports_winner_field markets, the reported options should usually sum close to 100.
 - For sports_qualification_bundle or other non-exclusive sports sets, the reported options may sum above 100.
@@ -785,6 +1248,185 @@ const ZH_ANALYSIS_LANGUAGE_REQUIREMENTS = `Language requirements:
 - All human-readable text must be Chinese.
 - Keep JSON keys, step markers like <!--STEP:xxx-->, and technical identifiers in English.
 - Preserve exact market option labels, bucket labels, team names, candidate names, and official market names when precision matters; explain them in Chinese rather than rewriting them loosely.`
+
+function getDeadlineDisciplineBlock(sources: PromptSources): string {
+  const context =
+    sources.analysisPlan &&
+    typeof sources.analysisPlan === 'object' &&
+    sources.analysisPlan.deadline_context &&
+    typeof sources.analysisPlan.deadline_context === 'object'
+      ? (sources.analysisPlan.deadline_context as Record<string, unknown>)
+      : null
+
+  const deadlineIso = typeof context?.deadline_iso === 'string' ? context.deadline_iso : null
+  const urgency = typeof context?.urgency === 'string' ? context.urgency : 'none'
+  const hours = typeof context?.hours_to_deadline === 'number' ? context.hours_to_deadline : null
+  const freshnessWindowHours =
+    typeof context?.freshness_window_hours === 'number' ? context.freshness_window_hours : null
+
+  if (sources.lang === 'zh') {
+    return [
+      'Deadline discipline:',
+      `- 当前绝对时间: ${sources.nowDateTime}`,
+      `- 主要截止时间: ${deadlineIso || '未提供'}`,
+      `- 剩余小时数: ${hours === null ? '未知' : hours}`,
+      `- 截止紧迫度: ${urgency}`,
+      `- 证据新鲜度窗口(小时): ${freshnessWindowHours === null ? '未指定' : freshnessWindowHours}`,
+      '- 对所有路径都必须优先回答“相关事件能否在截止前发生”，不能只论证它最终会不会发生。',
+      '- 临近截止时，最近新闻和最新官方更新权重必须显著高于较旧报道；过旧信息只能作为背景。',
+      '- 如果来源发布时间不够新，或最近新闻与旧叙事冲突，就必须降低确定性并收窄可用结论。',
+      '- 必须显式区分 confirmed fact、recent report、inference，不得把过期信息当成当前状态。',
+    ].join('\n')
+  }
+
+  return [
+    'Deadline discipline:',
+    `- Current absolute time: ${sources.nowDateTime}`,
+    `- Primary deadline: ${deadlineIso || 'not provided'}`,
+    `- Hours remaining: ${hours === null ? 'unknown' : hours}`,
+    `- Deadline urgency: ${urgency}`,
+    `- Evidence freshness window (hours): ${freshnessWindowHours === null ? 'not specified' : freshnessWindowHours}`,
+    '- For every path, answer whether the relevant event can happen before the deadline, not merely whether it eventually happens.',
+    '- As the deadline approaches, recent news and latest official updates must outweigh older reporting; stale reporting is background only.',
+    '- If the sourcing is not fresh enough, or recent news conflicts with the older narrative, lower confidence and move away from sharp claims.',
+    '- Distinguish confirmed fact, recent report, and inference explicitly. Do not treat stale information as current state.',
+  ].join('\n')
+}
+
+function getStep3StructuredOutputRule(lang: RuntimeLang): string {
+  if (lang === 'zh') {
+    return `Final output rule:
+- Ignore any earlier markdown template above. Return strict JSON only.
+- Output exactly one JSON object with this schema:
+{
+  "event": string,
+  "deadline": string,
+  "options": [
+    {
+      "name": string,
+      "market": number,
+      "fair_low": number,
+      "fair_high": number,
+      "fair_mid": number,
+      "confidence": "low" | "medium" | "high",
+      "sources": string[],
+      "rationale": string
+    }
+  ],
+  "recommendation": string,
+  "direction": string,
+  "summary_markdown": string
+}
+- market must be the current market-implied probability from Source 0.5 / Source 1.
+- fair_low / fair_high / fair_mid are your calibrated estimates on a 0-100 scale.
+- fair_low <= fair_mid <= fair_high must hold for every option.
+- Use only the exact option names from Source 0.5 decision_option_rows when that field is present.
+- sources must include the most material supporting sources for that option.
+- rationale should be concise and explicitly mention deadline pressure when it matters.
+- summary_markdown must be Chinese and concise.`
+  }
+
+  return `Final output rule:
+- Ignore any earlier markdown template above. Return strict JSON only.
+- Output exactly one JSON object with this schema:
+{
+  "event": string,
+  "deadline": string,
+  "options": [
+    {
+      "name": string,
+      "market": number,
+      "fair_low": number,
+      "fair_high": number,
+      "fair_mid": number,
+      "confidence": "low" | "medium" | "high",
+      "sources": string[],
+      "rationale": string
+    }
+  ],
+  "recommendation": string,
+  "direction": string,
+  "summary_markdown": string
+}
+- market must be the current market-implied probability from Source 0.5 / Source 1.
+- fair_low / fair_high / fair_mid are your calibrated estimates on a 0-100 scale.
+- fair_low <= fair_mid <= fair_high must hold for every option.
+- Use only the exact option names from Source 0.5 decision_option_rows when that field is present.
+- sources must include the most material supporting sources for that option.
+- rationale should be concise and explicitly mention deadline pressure when it matters.
+- summary_markdown should be concise and user-facing.`
+}
+
+const STEP5_PATH_PROMPTS: Record<AnalysisPath, string> = {
+  deadline_procedural: `Path-specific final rendering:
+- Keep the final explanation focused on the exact formal act, the cutoff, and the main blocker.
+- Recommendation should explicitly say whether the timeline is the edge.`,
+  linked_binary_ladder: `Path-specific final rendering:
+- Treat every option as a correlated deadline bucket, not as mutually exclusive outcomes.
+- Preserve monotonic consistency across later buckets in the final output.`,
+  numeric_market: `Path-specific final rendering:
+- State the metric, current level or realized amount, and required move to the bucket or threshold.
+- If the structure is a bucket distribution, present buckets in numeric order.`,
+  competitive_multi_outcome: `Path-specific final rendering:
+- Present the reportable contenders or scenarios as one coherent field.
+- Keep the final distribution close to 100 when the field is mutually exclusive.`,
+  sports_competition: `Path-specific final rendering:
+- Follow sports_profile when describing the competition structure.
+- Recommendation should identify the specific team, player, or market outcome with edge, or say no clear edge.`,
+  weather_station_bucket: `Path-specific final rendering:
+- Define the exact settlement variable first: station, local day, max or min, unit, and bucket edges.
+- Recommendation should explain which temperature bucket or side has edge and the main settlement-source risk.`,
+  weather_accumulation_bucket: `Path-specific final rendering:
+- Separate realized accumulation from the remaining forecast window in the explanation.
+- Respect bucket edges and any exact-boundary settlement rule in the final recommendation.`,
+  weather_first_occurrence_race: `Path-specific final rendering:
+- Explain the race structure, locations, qualifying threshold, and tie-break rule clearly.
+- Recommendation should identify the leading location or explicitly say the race is too close.`,
+  tropical_cyclone_event: `Path-specific final rendering:
+- Distinguish official designation risk from general storm-formation discussion.
+- Recommendation should explain whether the edge comes from official timing, classification, or count distribution.`,
+  climate_index_numeric: `Path-specific final rendering:
+- Anchor the final explanation on the official dataset, cadence, and bucket or threshold definition.
+- Recommendation should identify the dataset bucket with edge or explicitly say the long-range uncertainty is too wide.`,
+  generic_fallback: `Path-specific final rendering:
+- Keep the final answer conservative and emphasize uncertainty when the structure is weakly specified.`,
+}
+
+function getStructuredProbabilityAuditHint(lang: RuntimeLang): string {
+  return lang === 'zh'
+    ? `Source 2 format note:
+- Source 2 is strict JSON, not prose.
+- Each option includes market, fair_low, fair_high, fair_mid, confidence, sources, and rationale.
+- Audit whether fair ranges, point estimates, source freshness, and deadline sensitivity are coherent.`
+    : `Source 2 format note:
+- Source 2 is strict JSON, not prose.
+- Each option includes market, fair_low, fair_high, fair_mid, confidence, sources, and rationale.
+- Audit whether fair ranges, point estimates, source freshness, and deadline sensitivity are coherent.`
+}
+
+function getIndependentReasoningBlock(lang: RuntimeLang): string {
+  return lang === 'zh'
+    ? `Independent reasoning mode:
+- 这一步是市场盲分析。不要试图猜测或贴近当前市场价格。
+- 先根据规则、时间、新闻和证据形成独立判断，再给出 fair range。
+- 如果证据不足，就扩大区间或降低 confidence，而不是向市场价格靠拢。`
+    : `Independent reasoning mode:
+- This is a market-blind analysis step. Do not try to infer or hug the current market price.
+- Form an independent view from rules, time, news, and evidence first, then produce the fair range.
+- If the evidence is weak, widen the range or lower confidence instead of drifting toward the market.`
+}
+
+function getMarketComparisonDiscipline(lang: RuntimeLang): string {
+  return lang === 'zh'
+    ? `Market comparison discipline:
+- Source 2 comes from a market-blind pass.
+- 与市场价格不同本身不是错误，只有在证据薄弱、事实过时或规则理解错误时才应该往市场回调。
+- 审计重点是证据质量、时间敏感性、规则理解和概率自洽性，不是“离市场太远”。`
+    : `Market comparison discipline:
+- Source 2 comes from a market-blind pass.
+- Divergence from market is not itself an error. Only pull estimates toward market when the evidence is weak, stale, or rule interpretation is flawed.
+- Audit evidence quality, time sensitivity, rule understanding, and internal coherence, not mere distance from market.`
+}
 
 export function buildStep2Prompt(sources: PromptSources) {
   return [
@@ -861,7 +1503,7 @@ export function buildStep5Prompt(sources: PromptSources) {
 
 export function getStep2SystemPrompt(sources: PromptSources) {
   const prompt = sources.lang === 'zh' ? STEP2_SYSTEM_PROMPT_ZH : STEP2_SYSTEM_PROMPT
-  return prompt.replace('{{DATE}}', sources.nowDate)
+  return [prompt.replace('{{DATE}}', sources.nowDate), getIndependentReasoningBlock(sources.lang)].join('\n\n')
 }
 
 export function getStep3SystemPrompt(analysisPath: AnalysisPath, sources: PromptSources) {
@@ -869,7 +1511,13 @@ export function getStep3SystemPrompt(analysisPath: AnalysisPath, sources: Prompt
     '{{DATETIME}}',
     sources.nowDateTime
   )
-  return sources.lang === 'zh' ? `${prompt}\n\n${ZH_ANALYSIS_LANGUAGE_REQUIREMENTS}` : prompt
+  const combined = [
+    prompt,
+    getDeadlineDisciplineBlock(sources),
+    getIndependentReasoningBlock(sources.lang),
+    getStep3StructuredOutputRule(sources.lang),
+  ].join('\n\n')
+  return sources.lang === 'zh' ? `${combined}\n\n${ZH_ANALYSIS_LANGUAGE_REQUIREMENTS}` : combined
 }
 
 export function getStep4SystemPrompt(analysisPath: AnalysisPath, sources: PromptSources) {
@@ -877,12 +1525,23 @@ export function getStep4SystemPrompt(analysisPath: AnalysisPath, sources: Prompt
     '{{DATETIME}}',
     sources.nowDateTime
   )
-  return sources.lang === 'zh' ? `${prompt}\n\n${ZH_ANALYSIS_LANGUAGE_REQUIREMENTS}` : prompt
+  const combined = [
+    prompt,
+    getDeadlineDisciplineBlock(sources),
+    getMarketComparisonDiscipline(sources.lang),
+    getStructuredProbabilityAuditHint(sources.lang),
+  ].join('\n\n')
+  return sources.lang === 'zh' ? `${combined}\n\n${ZH_ANALYSIS_LANGUAGE_REQUIREMENTS}` : combined
 }
 
-export function getStep5SystemPrompt(sources: PromptSources) {
+export function getStep5SystemPrompt(analysisPath: AnalysisPath, sources: PromptSources) {
   const prompt = sources.lang === 'zh' ? STEP5_SYSTEM_PROMPT_ZH : STEP5_SYSTEM_PROMPT
-  return prompt.replace('{{DATETIME}}', sources.nowDateTime)
+  return [
+    prompt.replace('{{DATETIME}}', sources.nowDateTime),
+    STEP5_PATH_PROMPTS[analysisPath] || STEP5_PATH_PROMPTS.generic_fallback,
+    getDeadlineDisciplineBlock(sources),
+    getMarketComparisonDiscipline(sources.lang),
+  ].join('\n\n')
 }
 
 function stableJson(value: unknown) {

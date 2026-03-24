@@ -22,6 +22,7 @@ const typeLabel: Record<string, string> = {
   admin_grant: '管理员充值',
   topup: '充值',
   refund: '退款',
+  daily_checkin_bonus: '签到奖励',
 }
 
 const typeColor: Record<string, string> = {
@@ -31,6 +32,7 @@ const typeColor: Record<string, string> = {
   admin_grant: 'bg-emerald-100 text-emerald-700',
   topup: 'bg-emerald-100 text-emerald-700',
   refund: 'bg-amber-100 text-amber-700',
+  daily_checkin_bonus: 'bg-cyan-100 text-cyan-700',
 }
 
 export default function Transactions() {
@@ -74,6 +76,7 @@ export default function Transactions() {
           <option value="admin_grant">管理员充值</option>
           <option value="topup">充值</option>
           <option value="refund">退款</option>
+          <option value="daily_checkin_bonus">签到奖励</option>
         </select>
       </div>
 
