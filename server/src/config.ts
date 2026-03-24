@@ -49,6 +49,9 @@ export const config = {
   signupBonus: 300,
   // Referral commission rate (10%)
   referralCommissionRate: 0.10,
+  dailyCheckinCycle: parseInt(process.env.DAILY_CHECKIN_CYCLE || '3'),
+  dailyCheckinReward: parseInt(process.env.DAILY_CHECKIN_REWARD || '100'),
+  dailyCheckinTimezone: process.env.DAILY_CHECKIN_TIMEZONE || 'Asia/Shanghai',
 
   adminPassword: requireEnv('ADMIN_PASSWORD'),
   adminJwtSecret: requireEnv('ADMIN_JWT_SECRET'),

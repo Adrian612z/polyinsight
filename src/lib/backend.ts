@@ -110,6 +110,12 @@ export const api = {
   getCreditHistory: (page = 1) =>
     apiRequest(`/credits/history?page=${page}`),
 
+  getCheckInStatus: () =>
+    apiRequest('/credits/check-in'),
+
+  checkIn: () =>
+    apiRequest('/credits/check-in', { method: 'POST' }),
+
   // Referral
   getReferralInfo: () => apiRequest('/referral/info'),
 

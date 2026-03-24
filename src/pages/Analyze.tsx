@@ -255,8 +255,8 @@ const SessionCard: React.FC<SessionCardProps> = ({
           {/* Completed: show result */}
           {isCompleted && session.result && (
             <div className="pt-4 space-y-4">
-              <AnalysisFlowPanel flow={session.flow} title={t('analysisFlow.panelTitle', 'Analysis flow')} compact />
               <DecisionCard result={session.result} eventUrl={session.url} />
+              <AnalysisFlowPanel flow={session.flow} title={t('analysisFlow.panelTitle', 'Analysis flow')} compact />
               <div className="flex justify-center">
                 <button
                   onClick={(e) => { e.stopPropagation(); onRemove() }}

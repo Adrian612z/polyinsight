@@ -302,8 +302,8 @@ export const History: React.FC = () => {
                 <SkeletonList count={3} />
               ) : selectedDetail?.analysis_result ? (
                 <div className="space-y-6">
-                  <AnalysisFlowPanel flow={selectedDetail.flow || null} title={t('history.report.title')} />
                   <DecisionCard embedded result={selectedDetail.analysis_result} eventUrl={selectedRecord.event_url} />
+                  <AnalysisFlowPanel flow={selectedDetail.flow || null} title={t('history.report.title')} />
                 </div>
               ) : selectedDetail?.flow ? (
                 <AnalysisFlowPanel flow={selectedDetail.flow} title={t('history.report.title')} />
@@ -373,8 +373,8 @@ export const History: React.FC = () => {
                 <SkeletonList count={3} />
               ) : selectedDetail?.analysis_result ? (
                 <div className="space-y-5">
-                  <AnalysisFlowPanel flow={selectedDetail.flow || null} title={t('history.report.title')} />
                   <DecisionCard embedded result={selectedDetail.analysis_result} eventUrl={selectedRecord.event_url} />
+                  <AnalysisFlowPanel flow={selectedDetail.flow || null} title={t('history.report.title')} />
                 </div>
               ) : selectedDetail?.flow ? (
                 <AnalysisFlowPanel flow={selectedDetail.flow} title={t('history.report.title')} />
