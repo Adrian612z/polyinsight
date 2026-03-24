@@ -51,15 +51,14 @@ interface MarketTerminalRow {
   liquidity: number | null
   volume: number | null
   volume24hr: number | null
+  description: string
+  resolutionSource: string
+  competitive: number | null
   polymarketUrl: string
   analysisUrl: string
 }
 
-interface MarketTerminalDetail extends MarketTerminalRow {
-  description: string
-  resolutionSource: string
-  competitive: number | null
-}
+interface MarketTerminalDetail extends MarketTerminalRow {}
 
 interface MarketListResponse {
   items: MarketTerminalRow[]
@@ -213,29 +212,9 @@ function getCategoryText(category: MarketTerminalRow['category'], isZh: boolean)
   }
 }
 
-function useIsDesktop() {
-  const [isDesktop, setIsDesktop] = useState(() => {
-    if (typeof window === 'undefined') return true
-    return window.matchMedia('(min-width: 1280px)').matches
-  })
-
-  useEffect(() => {
-    const media = window.matchMedia('(min-width: 1280px)')
-    const listener = (event: MediaQueryListEvent) => setIsDesktop(event.matches)
-    media.addEventListener('change', listener)
-    setIsDesktop(media.matches)
-    return () => media.removeEventListener('change', listener)
-  }, [])
-
-  return isDesktop
-}
-
 function toDetail(row: MarketTerminalRow): MarketTerminalDetail {
   return {
     ...row,
-    description: '',
-    resolutionSource: '',
-    competitive: null,
   }
 }
 
@@ -244,7 +223,6 @@ export const Markets: React.FC = () => {
   const { t, i18n } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
-  const isDesktop = useIsDesktop()
   const { resolvedTheme } = useTheme()
   const isZh = i18n.language === 'zh'
   const isDark = resolvedTheme === 'dark'
@@ -263,8 +241,6 @@ export const Markets: React.FC = () => {
   const [listLoading, setListLoading] = useState(true)
   const [selectedMarket, setSelectedMarket] = useState<MarketTerminalDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [desktopPanelMounted, setDesktopPanelMounted] = useState(false)
-  const [desktopPanelOpen, setDesktopPanelOpen] = useState(false)
 
   useEffect(() => {
     setSearchInput(query)
@@ -348,29 +324,17 @@ export const Markets: React.FC = () => {
   }, [selectedMarketSlug, listData])
 
   useEffect(() => {
-    if (!isDesktop) {
-      setDesktopPanelMounted(false)
-      setDesktopPanelOpen(false)
-      return
+    if (!selectedMarketSlug) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        updateParams({ market: null }, true)
+      }
     }
 
-    if (selectedMarketSlug) {
-      setDesktopPanelMounted(true)
-      const frame = window.requestAnimationFrame(() => {
-        setDesktopPanelOpen(true)
-      })
-      return () => window.cancelAnimationFrame(frame)
-    }
-
-    if (!desktopPanelMounted) return
-
-    setDesktopPanelOpen(false)
-    const timeout = window.setTimeout(() => {
-      setDesktopPanelMounted(false)
-    }, 220)
-
-    return () => window.clearTimeout(timeout)
-  }, [isDesktop, selectedMarketSlug, desktopPanelMounted])
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedMarketSlug, searchParams, setSearchParams])
 
   const displayRows = useMemo(() => {
     const items = listData?.items || []
@@ -381,7 +345,6 @@ export const Markets: React.FC = () => {
 
   const selectedInList = displayRows.find((item) => item.marketSlug === selectedMarketSlug) || null
   const detail = selectedMarket || (selectedInList ? toDetail(selectedInList) : null)
-  const desktopDetailVisible = isDesktop && desktopPanelMounted
 
   const updateParams = (updates: Record<string, string | null>, replace = false) => {
     const next = new URLSearchParams(searchParams)
@@ -488,13 +451,6 @@ export const Markets: React.FC = () => {
   const expireCellClass = isDark ? 'text-sm font-semibold text-white/72' : 'text-sm font-semibold text-slate-600'
   const footerTextClass = isDark ? 'flex items-center gap-2 text-sm text-white/52' : 'flex items-center gap-2 text-sm text-slate-500'
   const pagerTextClass = isDark ? 'text-sm text-white/52' : 'text-sm text-slate-500'
-  const asideClass = isDark
-    ? 'hidden xl:flex xl:sticky xl:top-[7.25rem] xl:self-start xl:h-[calc(100vh-8.75rem)] flex-col border-l border-white/6 bg-white/[0.02]'
-    : 'hidden xl:flex xl:sticky xl:top-[7.25rem] xl:self-start xl:h-[calc(100vh-8.75rem)] flex-col border-l border-slate-900/6 bg-slate-50'
-  const mobileDrawerClass = isDark
-    ? 'absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[28px] border border-white/10 bg-[#0b0f15] text-white shadow-[0_-24px_60px_rgba(0,0,0,0.34)]'
-    : 'absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-[28px] border border-slate-900/10 bg-white text-slate-950 shadow-[0_-24px_60px_rgba(15,23,42,0.14)]'
-
   return (
     <div className={pageShellClass}>
       <div className="min-h-screen font-sans">
@@ -582,7 +538,7 @@ export const Markets: React.FC = () => {
                     {CATEGORY_TABS.map((tab) => (
                       <button
                         key={tab.key}
-                        onClick={() => updateParams({ category: tab.key === 'trending' ? null : tab.key, page: '1', market: isDesktop ? null : null })}
+                        onClick={() => updateParams({ category: tab.key === 'trending' ? null : tab.key, page: '1', market: null })}
                         className={clsx(
                           'rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] transition',
                           category === tab.key
@@ -601,9 +557,7 @@ export const Markets: React.FC = () => {
             <div
               className={clsx(
                 'grid min-h-[720px] transition-all duration-200',
-                desktopDetailVisible
-                  ? 'xl:grid-cols-[minmax(0,1fr)_390px]'
-                  : 'xl:grid-cols-1',
+                'xl:grid-cols-1',
                 toolbarBorderClass
               )}
             >
@@ -796,37 +750,24 @@ export const Markets: React.FC = () => {
                 </div>
               </section>
 
-              {desktopPanelMounted ? (
-                <aside
-                  className={clsx(
-                    asideClass,
-                    'overflow-hidden transition-all duration-200',
-                    desktopPanelOpen
-                      ? 'opacity-100 translate-x-0'
-                      : 'pointer-events-none opacity-0 translate-x-4'
-                  )}
-                >
-                  <MarketDetailPanel
-                    detail={detail}
-                    isZh={isZh}
-                    locale={i18n.language}
-                    loading={detailLoading}
-                    onAnalyze={handleAnalyze}
-                    onClear={() => updateParams({ market: null }, true)}
-                  />
-                </aside>
-              ) : null}
             </div>
           </div>
         </main>
 
-        {selectedMarketSlug && !isDesktop ? (
-          <div className="fixed inset-0 z-50 xl:hidden">
+        {selectedMarketSlug ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 xl:p-8">
             <div
-              className="animate-fade-in absolute inset-0 bg-black/65 backdrop-blur-sm"
+              className="animate-fade-in absolute inset-0 bg-black/55 backdrop-blur-sm"
               onClick={() => updateParams({ market: null }, true)}
             />
-            <div className={clsx(mobileDrawerClass, 'animate-fade-in-up')}>
+            <div
+              className={clsx(
+                'animate-fade-in-up relative z-10 w-full max-w-5xl overflow-hidden rounded-[30px] border shadow-[0_32px_90px_rgba(15,23,42,0.32)]',
+                isDark
+                  ? 'max-h-[88vh] border-white/10 bg-[#0b0f15] text-white'
+                  : 'max-h-[88vh] border-slate-900/10 bg-white text-slate-950'
+              )}
+            >
               <MarketDetailPanel
                 detail={detail}
                 isZh={isZh}
@@ -834,6 +775,7 @@ export const Markets: React.FC = () => {
                 loading={detailLoading}
                 onAnalyze={handleAnalyze}
                 onClear={() => updateParams({ market: null }, true)}
+                presentation="modal"
               />
             </div>
           </div>
@@ -850,10 +792,12 @@ const MarketDetailPanel: React.FC<{
   loading: boolean
   onAnalyze: (analysisUrl: string) => void
   onClear: () => void
-}> = ({ detail, isZh, locale, loading, onAnalyze, onClear }) => {
+  presentation?: 'inline' | 'modal'
+}> = ({ detail, isZh, locale, loading, onAnalyze, onClear, presentation = 'inline' }) => {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === 'dark'
+  const isModal = presentation === 'modal'
 
   if (loading && !detail) {
     return (
@@ -903,6 +847,13 @@ const MarketDetailPanel: React.FC<{
   const actionSurfaceClass = isDark
     ? 'theme-surface-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold text-white/84 hover:text-white'
     : 'theme-surface-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold'
+  const bodyClass = isModal ? 'flex-1 overflow-y-auto p-6 md:p-7 xl:p-8' : 'flex-1 space-y-5 overflow-y-auto p-5'
+  const summaryGridClass = isModal ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start' : 'space-y-5'
+  const sectionStackClass = isModal ? 'mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)] xl:items-start' : 'mt-5 space-y-5'
+  const actionWrapClass = isModal ? 'flex flex-col gap-3 border-t pt-5 sm:flex-row' : 'flex flex-col gap-3 sm:flex-row'
+  const rulesScrollClass = isModal
+    ? clsx('mt-4 text-sm leading-7', isDark ? 'text-white/70' : 'text-slate-600', 'max-h-[26rem] overflow-y-auto pr-2')
+    : clsx('mt-4 text-sm leading-7', isDark ? 'text-white/70' : 'text-slate-600')
 
   return (
     <div className="flex h-full flex-col">
@@ -919,112 +870,138 @@ const MarketDetailPanel: React.FC<{
         </button>
       </div>
 
-      <div className="flex-1 space-y-5 overflow-y-auto p-5">
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={categoryChipClass}>
-              {getCategoryText(detail.category, isZh)}
-            </span>
-            <span className={timeTextClass}>
-              {formatRemainingLabel(detail.endDate, isZh, detail.remainingLabel)}
-            </span>
+      <div className={bodyClass}>
+        <div className={summaryGridClass}>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={categoryChipClass}>
+                {getCategoryText(detail.category, isZh)}
+              </span>
+              <span className={timeTextClass}>
+                {formatRemainingLabel(detail.endDate, isZh, detail.remainingLabel)}
+              </span>
+            </div>
+            <h2 className={questionTitleClass}>
+              {detail.question}
+            </h2>
+            <p className={eventTitleClass}>
+              {detail.eventTitle}
+            </p>
           </div>
-          <h2 className={questionTitleClass}>
-            {detail.question}
-          </h2>
-          <p className={eventTitleClass}>
-            {detail.eventTitle}
-          </p>
-        </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className={statCardClass}>
-            <div className={statLabelClass}>
-              {t('markets.table.odds')}
-            </div>
-            <div className={bigValueClass}>
-              {formatPercent(detail.primaryProbability)}
-            </div>
-          </div>
-          <div className={statCardClass}>
-            <div className={statLabelClass}>
-              {t('markets.table.expires')}
-            </div>
-            <div className={expireValueClass}>
-              {formatDateTime(detail.endDate, locale)}
-            </div>
-          </div>
-          <div className={statCardClass}>
-            <div className={statLabelClass}>
-              {t('markets.table.liquidity')}
-            </div>
-            <div className={statValueClass}>
-              {formatMoney(detail.liquidity)}
-            </div>
-          </div>
-          <div className={statCardClass}>
-            <div className={statLabelClass}>
-              {t('markets.table.volume24hr')}
-            </div>
-            <div className={volumeAccentClass}>
-              {formatMoney(detail.volume24hr)}
-            </div>
-          </div>
-        </div>
-
-        <div className={sectionCardClass}>
-          <div className={sectionLabelClass}>
-            <TrendingUp className="h-4 w-4 text-[#36c6b2]" />
-            <span>{outcomeRows.length === 2 ? `${t('markets.panel.yes')} / ${t('markets.panel.no')}` : t('markets.panel.topOptions')}</span>
-          </div>
-          <div className="mt-4 space-y-3">
-            {outcomeRows.map((outcome) => (
-              <div key={outcome.label} className={outcomeCardClass}>
-                <div className={outcomeLabelClass}>
-                  {outcome.label}
-                </div>
-                <div className={outcomeValueClass}>
-                  {formatPercent(outcome.probability)}
-                </div>
+          <div className="grid grid-cols-2 gap-3 self-start">
+            <div className={statCardClass}>
+              <div className={statLabelClass}>
+                {t('markets.table.odds')}
               </div>
-            ))}
+              <div className={bigValueClass}>
+                {formatPercent(detail.primaryProbability)}
+              </div>
+            </div>
+            <div className={statCardClass}>
+              <div className={statLabelClass}>
+                {t('markets.table.expires')}
+              </div>
+              <div className={expireValueClass}>
+                {formatDateTime(detail.endDate, locale)}
+              </div>
+            </div>
+            <div className={statCardClass}>
+              <div className={statLabelClass}>
+                {t('markets.table.liquidity')}
+              </div>
+              <div className={statValueClass}>
+                {formatMoney(detail.liquidity)}
+              </div>
+            </div>
+            <div className={statCardClass}>
+              <div className={statLabelClass}>
+                {t('markets.table.volume24hr')}
+              </div>
+              <div className={volumeAccentClass}>
+                {formatMoney(detail.volume24hr)}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className={sectionCardClass}>
-          <div className={sectionLabelClass}>
-            <Coins className="h-4 w-4 text-[#c96a48]" />
-            <span>{t('markets.panel.description')}</span>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className={statCardClass}>
-              <div className={statLabelClass}>{t('markets.table.volume')}</div>
-              <div className={statValueClass}>{formatMoney(detail.volume)}</div>
+        <div className={sectionStackClass}>
+          <div className="space-y-5">
+            <div className={sectionCardClass}>
+              <div className={sectionLabelClass}>
+                <TrendingUp className="h-4 w-4 text-[#36c6b2]" />
+                <span>{outcomeRows.length === 2 ? `${t('markets.panel.yes')} / ${t('markets.panel.no')}` : t('markets.panel.topOptions')}</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {outcomeRows.map((outcome) => (
+                  <div key={outcome.label} className={outcomeCardClass}>
+                    <div className={outcomeLabelClass}>
+                      {outcome.label}
+                    </div>
+                    <div className={outcomeValueClass}>
+                      {formatPercent(outcome.probability)}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className={statCardClass}>
-              <div className={statLabelClass}>{t('markets.table.remaining')}</div>
-              <div className={statValueClass}>{formatRemainingLabel(detail.endDate, isZh, detail.remainingLabel)}</div>
-            </div>
-          </div>
-        </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <button
-            onClick={() => onAnalyze(detail.analysisUrl)}
-            className="theme-accent-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold"
-          >
-            {t('markets.panel.analyze')}
-            <ArrowRight className="h-4 w-4" />
-          </button>
-          <a
-            href={detail.polymarketUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={actionSurfaceClass}
-          >
-            {t('markets.panel.openMarket')}
-            <ExternalLink className="h-4 w-4" />
-          </a>
+            <div className={sectionCardClass}>
+              <div className={sectionLabelClass}>
+                <Coins className="h-4 w-4 text-[#c96a48]" />
+                <span>{t('markets.panel.marketDetails')}</span>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className={statCardClass}>
+                  <div className={statLabelClass}>{t('markets.table.volume')}</div>
+                  <div className={statValueClass}>{formatMoney(detail.volume)}</div>
+                </div>
+                <div className={statCardClass}>
+                  <div className={statLabelClass}>{t('markets.table.remaining')}</div>
+                  <div className={statValueClass}>{formatRemainingLabel(detail.endDate, isZh, detail.remainingLabel)}</div>
+                </div>
+                {detail.resolutionSource ? (
+                  <div className={clsx(statCardClass, 'sm:col-span-2')}>
+                    <div className={statLabelClass}>{t('markets.panel.resolutionSource')}</div>
+                    <div className={clsx('mt-2 text-sm font-semibold leading-6', isDark ? 'text-white/84' : 'text-slate-800')}>
+                      {detail.resolutionSource}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className={actionWrapClass}>
+              <button
+                onClick={() => onAnalyze(detail.analysisUrl)}
+                className="theme-accent-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold"
+              >
+                {t('markets.panel.analyze')}
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <a
+                href={detail.polymarketUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={actionSurfaceClass}
+              >
+                {t('markets.panel.openMarket')}
+                <ExternalLink className="h-4 w-4" />
+              </a>
+            </div>
+          </div>
+
+          {detail.description ? (
+            <div className={sectionCardClass}>
+              <div className={sectionLabelClass}>
+                <Coins className="h-4 w-4 text-[#c96a48]" />
+                <span>{t('markets.panel.rules')}</span>
+              </div>
+              <div className={rulesScrollClass}>
+                {detail.description}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

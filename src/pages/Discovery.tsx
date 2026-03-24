@@ -546,14 +546,6 @@ export const Discovery: React.FC = () => {
 
                     {showcaseItems.length > 0 ? (
                       <div className="mt-5">
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-charcoal/44">
-                            {copy.opportunities.stream}
-                          </div>
-                          <div className="rounded-full border border-charcoal/10 bg-warm-white/70 px-3 py-1 text-[11px] font-semibold text-charcoal/56 shadow-sm">
-                            {copy.opportunities.carouselHint}
-                          </div>
-                        </div>
                         <div className="relative overflow-hidden rounded-[32px]">
                           <div className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-16 ${isDark ? 'bg-gradient-to-r from-[rgba(10,16,32,0.98)] to-transparent' : 'bg-gradient-to-r from-[rgba(248,251,255,0.96)] to-transparent'}`} />
                           <div className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-16 ${isDark ? 'bg-gradient-to-l from-[rgba(10,16,32,0.98)] to-transparent' : 'bg-gradient-to-l from-[rgba(248,251,255,0.96)] to-transparent'}`} />

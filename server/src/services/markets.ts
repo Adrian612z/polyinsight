@@ -39,15 +39,14 @@ export interface MarketTerminalRow {
   liquidity: number | null
   volume: number | null
   volume24hr: number | null
+  description: string
+  resolutionSource: string
+  competitive: number | null
   polymarketUrl: string
   analysisUrl: string
 }
 
-export interface MarketTerminalDetail extends MarketTerminalRow {
-  description: string
-  resolutionSource: string
-  competitive: number | null
-}
+export interface MarketTerminalDetail extends MarketTerminalRow {}
 
 interface MarketsCachePayload {
   fetchedAt: string
@@ -307,6 +306,9 @@ function normalizeMarket(raw: RawPolymarketMarket): MarketTerminalRow | null {
     liquidity,
     volume,
     volume24hr,
+    description: String(raw.description || ''),
+    resolutionSource: String(raw.resolutionSource || ''),
+    competitive: toNumber(raw.competitive ?? eventRef?.competitive),
     polymarketUrl: eventUrl,
     analysisUrl: eventUrl,
   }
@@ -520,16 +522,11 @@ export async function getMarketTerminalDetail(marketSlug: string): Promise<Marke
       events: eventRef ? [{ ...eventRef, tags }] : raw.events,
     })
 
-    if (!base) return fromCache ? { ...fromCache, description: '', resolutionSource: '', competitive: null } : null
+    if (!base) return fromCache ? { ...fromCache } : null
 
-    return {
-      ...base,
-      description: String(raw.description || ''),
-      resolutionSource: String(raw.resolutionSource || ''),
-      competitive: toNumber(raw.competitive ?? eventRef?.competitive),
-    }
+    return { ...base }
   } catch (error) {
     console.error(`[Markets] Failed to fetch detail for ${marketSlug}:`, error)
-    return fromCache ? { ...fromCache, description: '', resolutionSource: '', competitive: null } : null
+    return fromCache ? { ...fromCache } : null
   }
 }
