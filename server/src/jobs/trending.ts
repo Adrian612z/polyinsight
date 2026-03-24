@@ -14,10 +14,38 @@ import {
   parseDecisionJson,
   type FeaturedRecord,
 } from '../services/featured.js'
+import type { PolymarketEvent } from '../services/polymarket.js'
+
+const AUTO_DISCOVERY_CRON = '0 */6 * * *'
+const AUTO_DISCOVERY_MAX_ANALYSES = 5
+const AUTO_DISCOVERY_SCAN_LIMIT = 30
+const AUTO_DISCOVERY_MIN_RUNWAY_MS = 72 * 60 * 60 * 1000
+
+export function hasAutoDiscoveryRunway(event: Pick<PolymarketEvent, 'endDate'>, now = Date.now()): boolean {
+  const expiry = Date.parse(event.endDate || '')
+  return Number.isFinite(expiry) && expiry - now >= AUTO_DISCOVERY_MIN_RUNWAY_MS
+}
+
+export function rankAutoDiscoveryEvents(events: PolymarketEvent[], now = Date.now()): PolymarketEvent[] {
+  return events
+    .filter((event) => hasAutoDiscoveryRunway(event, now))
+    .sort((left, right) => {
+      const volumeDiff = right.volume24hr - left.volume24hr
+      if (volumeDiff !== 0) return volumeDiff
+
+      const leftExpiry = Date.parse(left.endDate || '')
+      const rightExpiry = Date.parse(right.endDate || '')
+      if (Number.isFinite(leftExpiry) && Number.isFinite(rightExpiry)) {
+        return rightExpiry - leftExpiry
+      }
+
+      return right.volume - left.volume
+    })
+}
 
 export function startTrendingJob() {
-  // Run every 2 hours
-  cron.schedule('0 */2 * * *', async () => {
+  // Run every 6 hours.
+  cron.schedule(AUTO_DISCOVERY_CRON, async () => {
     console.log('[Trending] Fetching trending events...')
     try {
       await discoverAndAnalyze()
@@ -31,18 +59,21 @@ export function startTrendingJob() {
     discoverAndAnalyze().catch(err => console.error('[Trending] Initial run failed:', err))
   }, 5000)
 
-  console.log('[Trending] Cron job scheduled: every 2 hours')
+  console.log('[Trending] Cron job scheduled: every 6 hours')
 }
 
 async function discoverAndAnalyze() {
   await cleanupFeaturedPool()
 
-  const events = await fetchTrendingEvents(10)
-  console.log(`[Trending] Found ${events.length} trending events`)
+  const events = await fetchTrendingEvents(AUTO_DISCOVERY_SCAN_LIMIT)
+  const candidates = rankAutoDiscoveryEvents(events)
+  console.log(
+    `[Trending] Found ${events.length} trending events, ${candidates.length} eligible long-term candidates (>=72h runway)`
+  )
 
   let analyzed = 0
-  for (const event of events) {
-    if (analyzed >= 5) break
+  for (const event of candidates) {
+    if (analyzed >= AUTO_DISCOVERY_MAX_ANALYSES) break
 
     // Skip if already featured
     const { data: existing } = await supabase

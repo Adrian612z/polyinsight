@@ -252,13 +252,15 @@ cd ../server && npm run build
 
 - 启动入口：`server/src/jobs/trending.ts`
 - 调度方式：`node-cron`
-- 表达式：`0 */2 * * *`
-- 默认频率：每 2 小时整点执行一次
+- 表达式：`0 */6 * * *`
+- 默认频率：每 6 小时整点执行一次
 - 启动后行为：服务启动 5 秒后还会额外立即跑一次，避免首页刚启动时没有最新精选内容
 
 主要动作：
-- 拉取 Polymarket 热门事件
+- 拉取 Polymarket 热门事件候选池
 - 先清理已经过期或信号不足的 `featured_analyses`
+- 只保留距离到期至少 72 小时的较长期事件
+- 在这些长期事件里优先选择 24 小时交易量更高的热门事件
 - 最多挑选 5 个尚未处理的热门事件
 - 为这些事件创建 `analysis_records` 并写入 `analysis_jobs`
 - 对已完成的系统分析结果生成或更新 `featured_analyses`
