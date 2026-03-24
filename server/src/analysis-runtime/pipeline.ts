@@ -4,32 +4,8 @@ import {
   updateAnalysisPartialResult,
   type AnalysisJobRecord,
 } from '../services/analysisJobs.js'
-
-interface PolymarketMarket {
-  id: string
-  question: string
-  slug: string
-  outcomes?: string
-  outcomePrices?: string
-  active?: boolean
-  closed?: boolean
-  archived?: boolean
-  acceptingOrders?: boolean
-  enableOrderBook?: boolean
-  groupItemTitle?: string
-}
-
-interface PolymarketEvent {
-  id: string
-  slug: string
-  title: string
-  description: string
-  endDate?: string
-  markets: PolymarketMarket[]
-  eventMetadata?: {
-    context_description?: string
-  }
-}
+import { fetchPolymarketEventForSlug } from './polymarketFetch.js'
+import type { PolymarketEvent, PolymarketMarket } from './parity.js'
 
 interface RuntimeOption {
   name: string
@@ -73,7 +49,7 @@ export async function runCodeAnalysisPipeline(
   job: AnalysisJobRecord,
   hooks: RuntimeHooks = {}
 ): Promise<string> {
-  const event = await fetchEventBySlug(job.payload.slug)
+  const event = await fetchPolymarketEventForSlug(job.payload.slug)
   const markets = getRenderableMarkets(event)
   const analysisPath = inferAnalysisPath(event, markets)
 
@@ -117,7 +93,7 @@ export async function runStandaloneCodeAnalysis(input: {
   risk: RiskDraft
   finalResult: string
 }> {
-  const event = await fetchEventBySlug(input.slug)
+  const event = await fetchPolymarketEventForSlug(input.slug)
   const markets = getRenderableMarkets(event)
   const analysisPath = inferAnalysisPath(event, markets)
   const info = renderInfoStep(event, markets, analysisPath, input.lang)
@@ -141,14 +117,6 @@ async function persistStep(
   if (hooks.onProgress) {
     await hooks.onProgress(partial)
   }
-}
-
-async function fetchEventBySlug(slug: string): Promise<PolymarketEvent> {
-  const response = await fetch(`https://gamma-api.polymarket.com/events/slug/${encodeURIComponent(slug)}`)
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Polymarket event (${response.status})`)
-  }
-  return response.json() as Promise<PolymarketEvent>
 }
 
 function getRenderableMarkets(event: PolymarketEvent): PolymarketMarket[] {
@@ -820,8 +788,11 @@ function normalizeMarkets(markets: PolymarketMarket[]) {
   })
 }
 
-function parseList(input?: string): string[] {
+function parseList(input?: string | string[]): string[] {
   if (!input) return []
+  if (Array.isArray(input)) {
+    return input.map((value) => String(value))
+  }
   try {
     const parsed = JSON.parse(input)
     return Array.isArray(parsed) ? parsed.map((value) => String(value)) : []
@@ -830,7 +801,7 @@ function parseList(input?: string): string[] {
   }
 }
 
-function parseNumberList(input?: string): number[] {
+function parseNumberList(input?: string | string[]): number[] {
   return parseList(input)
     .map((value) => Number(value) * 100)
     .map((value) => (Number.isFinite(value) ? value : 0))

@@ -89,6 +89,22 @@ interface DeadlineContext {
   freshness_window_hours: number | null
 }
 
+interface DecisionOptionRowInput {
+  label: string
+  yes_probability: number | null
+  options: Array<{
+    name: string
+    probability: number | null
+  }>
+}
+
+export interface DecisionOptionRow {
+  name: string
+  market_label: string
+  option_name: string
+  market: number | null
+}
+
 export async function buildWorkflowContext(event: PolymarketEvent): Promise<WorkflowContext> {
   const routedEvent = routeMarketType(event)
   const plannedEvent = buildAnalysisPlan(routedEvent)
@@ -103,6 +119,43 @@ export async function buildWorkflowContext(event: PolymarketEvent): Promise<Work
     retrievalPlan,
     retrievalPack,
   }
+}
+
+export function buildDecisionOptionRows(
+  markets: DecisionOptionRowInput[],
+  structureKind: string
+): DecisionOptionRow[] {
+  const yesOnlyStructures = new Set([
+    'timing_curve',
+    'numeric_timing_curve',
+    'numeric_bucket_distribution',
+    'exclusive_field_distribution',
+    'event_bundle',
+    'sports_winner_field',
+    'sports_qualification_bundle',
+    'sports_generic_multi',
+  ])
+
+  if (yesOnlyStructures.has(structureKind)) {
+    return markets
+      .filter((market) => market.yes_probability !== null)
+      .map((market) => ({
+        name: market.label,
+        market_label: market.label,
+        option_name: 'Yes',
+        market: market.yes_probability,
+      }))
+  }
+
+  return markets.flatMap((market, index, allMarkets) => {
+    const usePrefixedNames = allMarkets.length > 1
+    return market.options.map((option) => ({
+      name: usePrefixedNames ? `${market.label} - ${option.name}` : option.name,
+      market_label: market.label,
+      option_name: option.name,
+      market: option.probability,
+    }))
+  })
 }
 
 function routeMarketType(event: PolymarketEvent): RoutedEvent {
@@ -760,16 +813,7 @@ function buildAnalysisPlan(event: RoutedEvent): PlannedEvent {
     ],
   }
 
-  const decisionOptionRows = orderedMarkets.flatMap((market) => {
-    const optionRows = Array.isArray(market.options) ? market.options : []
-    const usePrefixedNames = orderedMarkets.length > 1
-    return optionRows.map((option) => ({
-      name: usePrefixedNames ? `${market.label} - ${option.name}` : option.name,
-      market_label: market.label,
-      option_name: option.name,
-      market: option.probability,
-    }))
-  })
+  const decisionOptionRows = buildDecisionOptionRows(reportableMarkets, structureKind)
 
   const analysisPlan = {
     event_title: String(event.title || ''),

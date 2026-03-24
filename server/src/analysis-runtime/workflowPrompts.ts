@@ -745,7 +745,7 @@ Work method:
 4. For sports_winner_field, build a coherent distribution across the reportable teams or players plus tail and keep the reported probabilities summing close to 100.
 5. For sports_binary_outcome, explain the exact path to Yes and No, including remaining fixtures, table position, bracket or playoff path, and the main squad risk.
 6. For sports_multi_option_market, score every actual option in the active market, including draw or overtime-related options when present, and keep the distribution coherent across those mutually exclusive options.
-7. For sports_qualification_bundle or other non-exclusive structures, say clearly that the options are non-exclusive and do not force them to sum to 100.
+7. For sports_qualification_bundle or other non-exclusive structures, score only the reportable set from Source 0.5, treat each reported option as that market's Yes-side probability, and do not force them to sum to 100.
 7. Do not overreact to a single game or rumor unless it materially changes roster strength, seeding, or qualification mechanics.
 
 Output requirements:
@@ -1120,7 +1120,8 @@ Requirements for the JSON:
 - confidence = low / medium / high, representing how strong and fresh the evidence is for that option.
 - sources = the most material supporting sources for that option, ideally 2-4 concise source labels.
 - rationale = one short sentence explaining why this option is above or below the market.
-- If there are multiple options, list all actual options in the active analysis set. When Source 0.5 decision_option_rows provides prefixed names for multiple active markets, preserve those names.
+- If Source 0.5 decision_option_rows is present, output exactly those option names and only those option names.
+- For multi-market Yes/No bundles, Source 0.5 decision_option_rows may represent only the Yes side of each market; do not invent separate No rows unless they are explicitly present.
 - For linked_binary_ladder and numeric_timing_curve markets, the options are correlated deadline buckets and do not need to sum to 100.
 - For numeric_bucket_distribution, competitive_multi_outcome, and sports_winner_field markets, the reported options should usually sum close to 100.
 - For sports_qualification_bundle or other non-exclusive sports sets, the reported options may sum above 100.
@@ -1219,7 +1220,8 @@ Requirements for the JSON:
 - confidence = low / medium / high，表示该选项证据的强度与时效性。
 - sources = 支撑该选项判断的最关键来源，理想情况下给出 2-4 条简洁来源标签。
 - rationale = 一句简短理由，说明该选项为何高于或低于市场定价。
-- If there are multiple options, list all actual options in the active analysis set. When Source 0.5 decision_option_rows provides prefixed names for multiple active markets, preserve those names.
+- If Source 0.5 decision_option_rows is present, output exactly those option names and only those option names.
+- For multi-market Yes/No bundles, Source 0.5 decision_option_rows may represent only the Yes side of each market; do not invent separate No rows unless they are explicitly present.
 - For linked_binary_ladder and numeric_timing_curve markets, the options are correlated deadline buckets and do not need to sum to 100.
 - For numeric_bucket_distribution, competitive_multi_outcome, and sports_winner_field markets, the reported options should usually sum close to 100.
 - For sports_qualification_bundle or other non-exclusive sports sets, the reported options may sum above 100.
@@ -1318,7 +1320,7 @@ function getStep3StructuredOutputRule(lang: RuntimeLang): string {
 - market must be the current market-implied probability from Source 0.5 / Source 1.
 - fair_low / fair_high / fair_mid are your calibrated estimates on a 0-100 scale.
 - fair_low <= fair_mid <= fair_high must hold for every option.
-- Use the exact option names from the active analysis set.
+- Use only the exact option names from Source 0.5 decision_option_rows when that field is present.
 - sources must include the most material supporting sources for that option.
 - rationale should be concise and explicitly mention deadline pressure when it matters.
 - summary_markdown must be Chinese and concise.`
@@ -1349,7 +1351,7 @@ function getStep3StructuredOutputRule(lang: RuntimeLang): string {
 - market must be the current market-implied probability from Source 0.5 / Source 1.
 - fair_low / fair_high / fair_mid are your calibrated estimates on a 0-100 scale.
 - fair_low <= fair_mid <= fair_high must hold for every option.
-- Use the exact option names from the active analysis set.
+- Use only the exact option names from Source 0.5 decision_option_rows when that field is present.
 - sources must include the most material supporting sources for that option.
 - rationale should be concise and explicitly mention deadline pressure when it matters.
 - summary_markdown should be concise and user-facing.`

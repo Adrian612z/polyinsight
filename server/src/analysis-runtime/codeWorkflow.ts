@@ -6,9 +6,9 @@ import {
 } from '../services/analysisJobs.js'
 import {
   buildWorkflowContext,
-  type PolymarketEvent,
   type WorkflowContext,
 } from './parity.js'
+import { fetchPolymarketEventForSlug } from './polymarketFetch.js'
 import {
   buildStep2Prompt,
   buildStep3Prompt,
@@ -169,7 +169,7 @@ export async function runStandaloneCodeAnalysis(input: {
   finalResult: string
 }> {
   ensureRuntimeActive(input.hooks)
-  const event = await fetchEventBySlug(input.slug, input.hooks?.signal)
+  const event = await fetchPolymarketEventForSlug(input.slug, input.hooks?.signal)
   const context = await buildWorkflowContext(event)
   const promptSources = buildPromptSources(context, input.lang)
   const marketBlindPromptSources = buildMarketBlindPromptSources(context, input.lang)
@@ -298,17 +298,6 @@ function serializeRuntimeSteps(steps: RuntimeStep[]): string {
   return steps
     .map(([step, content]) => `<!--STEP:${step}-->\n${content.trim()}`)
     .join(STEP_SEPARATOR)
-}
-
-async function fetchEventBySlug(slug: string, signal?: AbortSignal): Promise<PolymarketEvent> {
-  throwIfAborted(signal)
-  const response = await fetch(`https://gamma-api.polymarket.com/events/slug/${encodeURIComponent(slug)}`, {
-    signal,
-  })
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Polymarket event (${response.status})`)
-  }
-  return (await response.json()) as PolymarketEvent
 }
 
 function buildPromptSources(context: WorkflowContext, lang: RuntimeLang) {
