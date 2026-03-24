@@ -1,10 +1,12 @@
 import cron from 'node-cron'
+import { fetchPolymarketEventForSlug } from '../analysis-runtime/polymarketFetch.js'
 import { supabase } from '../services/supabase.js'
 import { fetchTrendingEvents } from '../services/polymarket.js'
 import { extractPolymarketSlug } from '../utils/polymarket.js'
 import { enqueueAnalysisJob } from '../services/analysisJobs.js'
 import {
   calculateMispricingScore,
+  getFeatureExpiryIso,
   getFeaturedSignalStrength,
   guessCategory,
   isExpiredFeature,
@@ -126,7 +128,18 @@ async function populateCompletedFeatured() {
     const slug = extractSlug(record.event_url)
     if (!slug) continue
 
-    const event = { slug, title: '', volume: 0, volume24hr: 0, endDate: '', markets: [] }
+    let event = { slug, title: '', endDate: '' }
+    try {
+      const polymarketEvent = await fetchPolymarketEventForSlug(slug)
+      event = {
+        slug,
+        title: polymarketEvent.title || '',
+        endDate: polymarketEvent.endDate || '',
+      }
+    } catch (error) {
+      console.warn(`[Trending] Failed to backfill event metadata for ${slug}:`, error)
+    }
+
     await createFeaturedEntry(event, record)
   }
 }
@@ -153,7 +166,7 @@ async function createFeaturedEntry(
     decision_data: decisionData,
     mispricing_score: mispricingScore,
     is_active: true,
-    expires_at: event.endDate || null,
+    expires_at: getFeatureExpiryIso(event.endDate || null, String(decisionData?.deadline || '')),
   }, { onConflict: 'event_slug' })
 
   console.log(`[Trending] Featured: ${event.slug} (mispricing: ${mispricingScore})`)

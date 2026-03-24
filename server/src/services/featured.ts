@@ -6,6 +6,7 @@ interface FeaturedDecisionOption {
 interface FeaturedDecisionData {
   event?: string
   options?: FeaturedDecisionOption[]
+  deadline?: string | null
 }
 
 export interface FeaturedRecord {
@@ -20,6 +21,37 @@ export interface FeaturedRecord {
   is_active?: boolean | null
   expires_at?: string | null
   created_at?: string
+}
+
+function parseFeatureExpiry(input: string | null | undefined): number | null {
+  if (!input) return null
+
+  const trimmed = input.trim()
+  if (!trimmed) return null
+
+  // Treat bare YYYY-MM-DD deadlines as the end of that UTC day so a same-day
+  // opportunity does not disappear at 00:00.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const dateOnlyExpiry = Date.parse(`${trimmed}T23:59:59.999Z`)
+    return Number.isFinite(dateOnlyExpiry) ? dateOnlyExpiry : null
+  }
+
+  const parsed = Date.parse(trimmed)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+export function getFeatureExpiryMs(
+  featured: Pick<FeaturedRecord, 'expires_at' | 'decision_data'>
+): number | null {
+  return parseFeatureExpiry(featured.expires_at) ?? parseFeatureExpiry(featured.decision_data?.deadline)
+}
+
+export function getFeatureExpiryIso(
+  expiresAt: string | null | undefined,
+  deadline: string | null | undefined
+): string | null {
+  const expiryMs = parseFeatureExpiry(expiresAt) ?? parseFeatureExpiry(deadline)
+  return expiryMs ? new Date(expiryMs).toISOString() : null
 }
 
 export function parseDecisionJson(result: string): Record<string, unknown> | null {
@@ -78,9 +110,8 @@ export function hasRenderableDecision(featured: Pick<FeaturedRecord, 'decision_d
 }
 
 export function isExpiredFeature(featured: Pick<FeaturedRecord, 'expires_at'>, now = Date.now()): boolean {
-  if (!featured.expires_at) return false
-  const expiry = Date.parse(featured.expires_at)
-  return Number.isFinite(expiry) && expiry <= now
+  const expiry = getFeatureExpiryMs(featured as Pick<FeaturedRecord, 'expires_at' | 'decision_data'>)
+  return expiry !== null && expiry <= now
 }
 
 export function isRenderableFeatured(featured: FeaturedRecord, now = Date.now()): boolean {
