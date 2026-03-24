@@ -5,6 +5,20 @@ export interface CachedReferralInfo {
   referralLink: string
   invitedCount: number
   totalCommission: number
+  invitedUsers: Array<{
+    id: string
+    email: string | null
+    display_name: string | null
+    created_at: string
+  }>
+  commissionRecords: Array<{
+    id: string
+    amount: number
+    description: string | null
+    balance_after: number
+    created_at: string
+    reference_id: string | null
+  }>
 }
 
 export interface CachedCreditTx {

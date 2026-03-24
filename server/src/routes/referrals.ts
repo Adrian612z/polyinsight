@@ -4,35 +4,50 @@ import { authMiddleware } from '../middleware/auth.js'
 
 const router = Router()
 
+interface InvitedUserRow {
+  id: string
+  email: string | null
+  display_name: string | null
+  created_at: string
+}
+
+interface CommissionRow {
+  id: string
+  amount: number
+  description: string | null
+  balance_after: number
+  created_at: string
+  reference_id: string | null
+}
+
 // GET /api/referral/info - Get referral code and stats
 router.get('/info', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
 
-    // Get user's referral code
-    const { data: user } = await supabase
-      .from('users')
-      .select('referral_code')
-      .eq('id', userId)
-      .single()
+    const [{ data: user }, { data: invitedUsers, count: invitedCount }, { data: commissions }] = await Promise.all([
+      supabase
+        .from('users')
+        .select('referral_code')
+        .eq('id', userId)
+        .single(),
+      supabase
+        .from('users')
+        .select('id, email, display_name, created_at', { count: 'exact' })
+        .eq('referred_by', userId)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('credit_transactions')
+        .select('id, amount, description, balance_after, created_at, reference_id')
+        .eq('user_id', userId)
+        .eq('type', 'referral_commission')
+        .order('created_at', { ascending: false }),
+    ])
 
     if (!user) {
       res.status(404).json({ error: 'User not found' })
       return
     }
-
-    // Count invited users
-    const { count: invitedCount } = await supabase
-      .from('users')
-      .select('id', { count: 'exact', head: true })
-      .eq('referred_by', userId)
-
-    // Total commission earned
-    const { data: commissions } = await supabase
-      .from('credit_transactions')
-      .select('amount')
-      .eq('user_id', userId)
-      .eq('type', 'referral_commission')
 
     const totalCommission = (commissions || []).reduce((sum, tx) => sum + tx.amount, 0)
 
@@ -41,6 +56,8 @@ router.get('/info', authMiddleware, async (req: Request, res: Response) => {
       referralLink: `https://polyinsight.online/?ref=${user.referral_code}`,
       invitedCount: invitedCount || 0,
       totalCommission,
+      invitedUsers: (invitedUsers || []) as InvitedUserRow[],
+      commissionRecords: (commissions || []) as CommissionRow[],
     })
   } catch (err) {
     console.error('Referral info error:', err)

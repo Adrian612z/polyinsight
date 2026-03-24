@@ -7,8 +7,9 @@ interface AuthState {
   creditBalance: number
   referralCode: string | null
   setPrivyUser: (userId: string, displayName: string | null) => void
+  setDisplayName: (displayName: string | null) => void
   setCreditBalance: (balance: number) => void
-  setUserInfo: (info: { creditBalance: number; referralCode: string | null }) => void
+  setUserInfo: (info: { creditBalance: number; referralCode: string | null; displayName?: string | null }) => void
   signOut: () => void
 }
 
@@ -20,10 +21,12 @@ export const useAuthStore = create<AuthState>()(
       creditBalance: 0,
       referralCode: null,
       setPrivyUser: (privyUserId, displayName) => set({ privyUserId, displayName }),
+      setDisplayName: (displayName) => set({ displayName }),
       setCreditBalance: (creditBalance) => set({ creditBalance }),
       setUserInfo: (info) => set({
         creditBalance: info.creditBalance,
         referralCode: info.referralCode,
+        ...(info.displayName !== undefined ? { displayName: info.displayName } : {}),
       }),
       signOut: () => set({
         privyUserId: null, displayName: null,

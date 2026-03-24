@@ -87,6 +87,9 @@ export const api = {
 
   getMe: () => apiRequest('/users/me'),
 
+  updateMe: (body: { displayName: string }) =>
+    apiRequest('/users/me', { method: 'PATCH', body: JSON.stringify(body) }),
+
   // Analysis
   createAnalysis: (url: string, lang?: string) =>
     apiRequest('/analysis', { method: 'POST', body: JSON.stringify({ url, lang: lang || 'en' }) }),

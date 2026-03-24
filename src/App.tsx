@@ -67,6 +67,7 @@ function App() {
             setUserInfo({
               creditBalance: res.user.credit_balance,
               referralCode: res.user.referral_code,
+              displayName: res.user.display_name || display || null,
             })
             void primeWorkspaceCaches(user.id)
           }

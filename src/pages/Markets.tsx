@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { api } from '../lib/backend'
 import { Logo } from '../components/Logo'
+import { ReferralAuthModal } from '../components/ReferralAuthModal'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useTheme } from '../lib/theme'
 
@@ -241,6 +242,8 @@ export const Markets: React.FC = () => {
   const [listLoading, setListLoading] = useState(true)
   const [selectedMarket, setSelectedMarket] = useState<MarketTerminalDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [authModalOpen, setAuthModalOpen] = useState(false)
+  const [pendingAnalyzeUrl, setPendingAnalyzeUrl] = useState<string | null>(null)
 
   useEffect(() => {
     setSearchInput(query)
@@ -357,14 +360,23 @@ export const Markets: React.FC = () => {
 
   const handleAnalyze = (analysisUrl: string) => {
     if (!authenticated) {
-      sessionStorage.setItem('polyinsight-pending-url', analysisUrl)
-      login()
+      setPendingAnalyzeUrl(analysisUrl)
+      setAuthModalOpen(true)
       return
     }
 
     navigate('/analyze', {
       state: { prefillUrl: analysisUrl },
     })
+  }
+
+  const continueLogin = () => {
+    if (pendingAnalyzeUrl) {
+      sessionStorage.setItem('polyinsight-pending-url', pendingAnalyzeUrl)
+    }
+    setAuthModalOpen(false)
+    setPendingAnalyzeUrl(null)
+    login()
   }
 
   const pageShellClass = isDark
@@ -498,7 +510,10 @@ export const Markets: React.FC = () => {
                   </Link>
                 ) : (
                   <button
-                    onClick={() => login()}
+                    onClick={() => {
+                      setPendingAnalyzeUrl(null)
+                      setAuthModalOpen(true)
+                    }}
                     className="theme-accent-button inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition"
                   >
                     {t('markets.nav.signIn')}
@@ -781,6 +796,14 @@ export const Markets: React.FC = () => {
           </div>
         ) : null}
       </div>
+      <ReferralAuthModal
+        isOpen={authModalOpen}
+        onClose={() => {
+          setAuthModalOpen(false)
+          setPendingAnalyzeUrl(null)
+        }}
+        onContinue={continueLogin}
+      />
     </div>
   )
 }

@@ -31,21 +31,33 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
 
     if (existing) {
       // Update display info if changed
-      if (email || displayName) {
+      const updates: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      }
+      let shouldUpdate = false
+
+      if (email && email !== existing.email) {
+        updates.email = email
+        shouldUpdate = true
+      }
+
+      // Preserve user-customized nicknames once the user exists.
+      if (!existing.display_name && displayName) {
+        updates.display_name = displayName
+        shouldUpdate = true
+      }
+
+      if (shouldUpdate) {
         await supabase
           .from('users')
-          .update({
-            email: email || existing.email,
-            display_name: displayName || existing.display_name,
-            updated_at: new Date().toISOString(),
-          })
+          .update(updates)
           .eq('id', userId)
       }
       res.json({
         user: {
           ...existing,
           email: email || existing.email,
-          display_name: displayName || existing.display_name,
+          display_name: existing.display_name || displayName || null,
         },
         isNew: false,
       })
@@ -109,6 +121,48 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
   } catch (err: unknown) {
     console.error('Register error:', err)
     res.status(500).json({ error: 'Registration failed' })
+  }
+})
+
+router.patch('/me', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const rawDisplayName = req.body?.displayName
+
+    if (typeof rawDisplayName !== 'string') {
+      res.status(400).json({ error: 'displayName is required' })
+      return
+    }
+
+    const displayName = rawDisplayName.trim()
+    if (!displayName) {
+      res.status(400).json({ error: 'Display name cannot be empty' })
+      return
+    }
+
+    if (displayName.length > 40) {
+      res.status(400).json({ error: 'Display name must be 40 characters or fewer' })
+      return
+    }
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .update({
+        display_name: displayName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.userId!)
+      .select('*')
+      .single()
+
+    if (error || !user) {
+      res.status(404).json({ error: 'User not found' })
+      return
+    }
+
+    res.json({ user })
+  } catch (err) {
+    console.error('Update user profile error:', err)
+    res.status(500).json({ error: 'Failed to update user profile' })
   }
 })
 

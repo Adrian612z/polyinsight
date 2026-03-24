@@ -17,6 +17,7 @@ import {
 import { api } from '../lib/backend'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { Logo } from '../components/Logo'
+import { ReferralAuthModal } from '../components/ReferralAuthModal'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useTheme } from '../lib/theme'
 
@@ -331,6 +332,8 @@ export const Discovery: React.FC = () => {
   const copy = getDiscoveryCopy(isZh)
   const [featured, setFeatured] = useState<FeaturedAnalysis[]>([])
   const [quickUrl, setQuickUrl] = useState('')
+  const [authModalOpen, setAuthModalOpen] = useState(false)
+  const [pendingAnalyzeUrl, setPendingAnalyzeUrl] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -354,14 +357,23 @@ export const Discovery: React.FC = () => {
     const nextUrl = (url || quickUrl).trim()
 
     if (!authenticated) {
-      if (nextUrl) sessionStorage.setItem('polyinsight-pending-url', nextUrl)
-      login()
+      setPendingAnalyzeUrl(nextUrl || null)
+      setAuthModalOpen(true)
       return
     }
 
     navigate('/analyze', {
       state: nextUrl ? { prefillUrl: nextUrl } : undefined,
     })
+  }
+
+  const continueLogin = () => {
+    if (pendingAnalyzeUrl) {
+      sessionStorage.setItem('polyinsight-pending-url', pendingAnalyzeUrl)
+    }
+    setAuthModalOpen(false)
+    setPendingAnalyzeUrl(null)
+    login()
   }
 
   const featuredItems = featured
@@ -667,6 +679,14 @@ export const Discovery: React.FC = () => {
           </div>
         </footer>
       </div>
+      <ReferralAuthModal
+        isOpen={authModalOpen}
+        onClose={() => {
+          setAuthModalOpen(false)
+          setPendingAnalyzeUrl(null)
+        }}
+        onContinue={continueLogin}
+      />
     </AnimatedBackground>
   )
 }

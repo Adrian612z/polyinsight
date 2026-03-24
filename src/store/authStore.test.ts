@@ -20,6 +20,19 @@ describe('authStore', () => {
     expect(state.displayName).toBe('user@example.com')
   })
 
+  it('setDisplayName should update only the display name', () => {
+    useAuthStore.setState({
+      privyUserId: 'did:privy:abc123',
+      displayName: 'old-name',
+    })
+
+    useAuthStore.getState().setDisplayName('new-name')
+
+    const state = useAuthStore.getState()
+    expect(state.privyUserId).toBe('did:privy:abc123')
+    expect(state.displayName).toBe('new-name')
+  })
+
   it('signOut should clear all state', () => {
     useAuthStore.setState({
       privyUserId: 'did:privy:abc123',
