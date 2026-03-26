@@ -25,15 +25,13 @@ export default function Featured() {
   const [showAdd, setShowAdd] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [form, setForm] = useState({
-    event_slug: '',
-    event_title: '',
-    category: '',
-    polymarket_url: '',
-    mispricing_score: '',
+    url: '',
+    lang: 'zh' as 'zh' | 'en',
   })
   const [adding, setAdding] = useState(false)
   const [batchAction, setBatchAction] = useState<BatchAction | null>(null)
   const [itemActionId, setItemActionId] = useState<string | null>(null)
+  const [queueNotice, setQueueNotice] = useState<string | null>(null)
   const selectAllRef = useRef<HTMLInputElement | null>(null)
 
   const fetchData = async () => {
@@ -73,15 +71,13 @@ export default function Featured() {
   }
 
   const handleAdd = async () => {
-    if (!form.event_slug || !form.event_title) return
+    if (!form.url.trim()) return
     setAdding(true)
     try {
-      await api.addFeatured({
-        ...form,
-        mispricing_score: form.mispricing_score ? parseFloat(form.mispricing_score) : null,
-      })
+      await api.queueFeatured(form.url.trim(), form.lang)
       setShowAdd(false)
-      setForm({ event_slug: '', event_title: '', category: '', polymarket_url: '', mispricing_score: '' })
+      setForm({ url: '', lang: 'zh' })
+      setQueueNotice('已提交到 Code 引擎分析队列，分析完成后会自动加入下方推荐列表。')
       await fetchData()
     } finally {
       setAdding(false)
@@ -135,6 +131,12 @@ export default function Featured() {
           <Plus className="w-4 h-4" /> 添加推荐
         </button>
       </div>
+
+      {queueNotice && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {queueNotice}
+        </div>
+      )}
 
       {/* List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -250,58 +252,31 @@ export default function Featured() {
       {showAdd && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center" onClick={() => setShowAdd(false)}>
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">添加推荐分析</h3>
+            <h3 className="text-lg font-semibold mb-4">手动添加推荐事件</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Event Slug *</label>
-                <input
-                  type="text"
-                  value={form.event_slug}
-                  onChange={(e) => setForm({ ...form, event_slug: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                  placeholder="will-trump-win-2024"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">标题 *</label>
-                <input
-                  type="text"
-                  value={form.event_title}
-                  onChange={(e) => setForm({ ...form, event_title: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">分类</label>
-                  <input
-                    type="text"
-                    value={form.category}
-                    onChange={(e) => setForm({ ...form, category: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="Politics"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">错价分</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={form.mispricing_score}
-                    onChange={(e) => setForm({ ...form, mispricing_score: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-                    placeholder="0.85"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Polymarket URL</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Polymarket URL *</label>
                 <input
                   type="url"
-                  value={form.polymarket_url}
-                  onChange={(e) => setForm({ ...form, polymarket_url: e.target.value })}
+                  value={form.url}
+                  onChange={(e) => setForm({ ...form, url: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="https://polymarket.com/event/..."
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">分析语言</label>
+                <select
+                  value={form.lang}
+                  onChange={(e) => setForm({ ...form, lang: e.target.value === 'en' ? 'en' : 'zh' })}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+                >
+                  <option value="zh">中文</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm leading-6 text-gray-600">
+                提交后会使用 Code 引擎分析这个事件。分析完成后，系统会自动把结果写入推荐列表；如果事件已存在，会更新原有推荐。
               </div>
               <div className="flex gap-2 pt-2">
                 <button onClick={() => setShowAdd(false)} className="flex-1 py-2 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50">
@@ -309,10 +284,10 @@ export default function Featured() {
                 </button>
                 <button
                   onClick={handleAdd}
-                  disabled={adding || !form.event_slug || !form.event_title}
+                  disabled={adding || !form.url.trim()}
                   className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                 >
-                  {adding ? '添加中...' : '确认添加'}
+                  {adding ? '提交中...' : '提交分析'}
                 </button>
               </div>
             </div>

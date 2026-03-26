@@ -5,6 +5,9 @@ import { config } from '../config.js'
 import { grantCredits } from '../services/credit.js'
 import { approveBillingOrder, rejectBillingOrder } from '../services/billing.js'
 import { buildAnalysisFlowView } from '../services/analysisFlow.js'
+import { enqueueAnalysisJob } from '../services/analysisJobs.js'
+import { ADMIN_MANUAL_FEATURED_USER_ID } from '../services/featured.js'
+import { extractPolymarketSlug, isValidPolymarketUrl, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
 
 const router = Router()
 
@@ -659,6 +662,74 @@ router.post('/featured', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Add featured error:', err)
     res.status(500).json({ error: 'Failed to add featured' })
+  }
+})
+
+router.post('/featured/manual', async (req: Request, res: Response) => {
+  try {
+    const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : ''
+    const lang = req.body?.lang === 'en' ? 'en' : 'zh'
+
+    if (!rawUrl) {
+      res.status(400).json({ error: 'Please provide a Polymarket URL' })
+      return
+    }
+
+    if (!isValidPolymarketUrl(rawUrl)) {
+      res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
+      return
+    }
+
+    const slug = extractPolymarketSlug(rawUrl)
+    const canonicalUrl = toCanonicalPolymarketEventUrl(rawUrl)
+    if (!slug || !canonicalUrl) {
+      res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
+      return
+    }
+
+    const { data: record, error: recordError } = await supabase
+      .from('analysis_records')
+      .insert({
+        event_url: canonicalUrl,
+        status: 'pending',
+        user_id: ADMIN_MANUAL_FEATURED_USER_ID,
+        credits_charged: 0,
+      })
+      .select('id, event_url')
+      .single()
+
+    if (recordError) throw recordError
+
+    try {
+      await enqueueAnalysisJob({
+        analysisRecordId: record.id,
+        userId: ADMIN_MANUAL_FEATURED_USER_ID,
+        lang,
+        engine: 'code',
+        payload: {
+          url: canonicalUrl,
+          originalUrl: rawUrl,
+          slug,
+          userId: ADMIN_MANUAL_FEATURED_USER_ID,
+          recordId: record.id,
+          lang,
+        },
+      })
+    } catch (queueErr) {
+      await supabase.from('analysis_records').delete().eq('id', record.id)
+      throw queueErr
+    }
+
+    res.json({
+      queued: true,
+      recordId: record.id,
+      slug,
+      url: canonicalUrl,
+      lang,
+    })
+  } catch (err) {
+    console.error('Queue manual featured error:', err)
+    res.status(500).json({ error: 'Failed to queue featured analysis' })
   }
 })
 

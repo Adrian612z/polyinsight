@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto'
 import { supabase } from './supabase.js'
 import { config } from '../config.js'
 import { refundAnalysisCreditsIfNeeded } from './credit.js'
+import { ADMIN_MANUAL_FEATURED_USER_ID, upsertFeaturedFromAnalysisSource } from './featured.js'
 
 export type AnalysisEngine = 'n8n' | 'code'
 export type AnalysisJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -312,7 +313,7 @@ export async function failAnalysisRecordAndRefund(
 }
 
 export async function markAnalysisRecordCompleted(recordId: string, result: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('analysis_records')
     .update({
       status: 'completed',
@@ -321,8 +322,22 @@ export async function markAnalysisRecordCompleted(recordId: string, result: stri
     })
     .eq('id', recordId)
     .eq('status', 'pending')
+    .select('id, user_id, event_url')
+    .maybeSingle()
 
   if (error) throw error
+
+  if (data?.user_id === ADMIN_MANUAL_FEATURED_USER_ID) {
+    try {
+      await upsertFeaturedFromAnalysisSource({
+        analysisRecordId: data.id,
+        eventUrl: data.event_url,
+        analysisResult: result,
+      })
+    } catch (featuredErr) {
+      console.error('[Featured] Failed to upsert manual featured analysis:', featuredErr)
+    }
+  }
 }
 
 export async function updateAnalysisPartialResult(recordId: string, partialResult: string): Promise<void> {

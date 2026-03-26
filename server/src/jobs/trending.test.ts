@@ -2,17 +2,10 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { hasAutoDiscoveryRunway, rankAutoDiscoveryEvents } from './trending.js'
+import { rankAutoDiscoveryEvents } from './trending.js'
 
 describe('auto-discovery trending selection', () => {
-  const now = Date.parse('2026-03-24T10:00:00Z')
-
-  it('rejects events that are ending too soon', () => {
-    expect(hasAutoDiscoveryRunway({ endDate: '2026-03-25T09:59:59Z' }, now)).toBe(false)
-    expect(hasAutoDiscoveryRunway({ endDate: '2026-03-27T10:00:00Z' }, now)).toBe(true)
-  })
-
-  it('keeps only long-runway events and sorts them by 24h volume first', () => {
+  it('keeps all events and sorts them by 24h volume first', () => {
     const ranked = rankAutoDiscoveryEvents([
       {
         slug: 'soon',
@@ -41,10 +34,11 @@ describe('auto-discovery trending selection', () => {
         endDate: '2026-05-10T00:00:00Z',
         markets: [],
       },
-    ], now)
+    ])
 
     expect(ranked.map((event) => event.slug)).toEqual([
       'long-high-volume',
+      'soon',
       'long-lower-volume',
     ])
   })

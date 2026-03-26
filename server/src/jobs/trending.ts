@@ -1,4 +1,5 @@
 import cron from 'node-cron'
+import { config } from '../config.js'
 import { fetchPolymarketEventForSlug } from '../analysis-runtime/polymarketFetch.js'
 import { supabase } from '../services/supabase.js'
 import { fetchTrendingEvents } from '../services/polymarket.js'
@@ -19,16 +20,9 @@ import type { PolymarketEvent } from '../services/polymarket.js'
 const AUTO_DISCOVERY_CRON = '0 */6 * * *'
 const AUTO_DISCOVERY_MAX_ANALYSES = 5
 const AUTO_DISCOVERY_SCAN_LIMIT = 30
-const AUTO_DISCOVERY_MIN_RUNWAY_MS = 72 * 60 * 60 * 1000
 
-export function hasAutoDiscoveryRunway(event: Pick<PolymarketEvent, 'endDate'>, now = Date.now()): boolean {
-  const expiry = Date.parse(event.endDate || '')
-  return Number.isFinite(expiry) && expiry - now >= AUTO_DISCOVERY_MIN_RUNWAY_MS
-}
-
-export function rankAutoDiscoveryEvents(events: PolymarketEvent[], now = Date.now()): PolymarketEvent[] {
+export function rankAutoDiscoveryEvents(events: PolymarketEvent[]): PolymarketEvent[] {
   return events
-    .filter((event) => hasAutoDiscoveryRunway(event, now))
     .sort((left, right) => {
       const volumeDiff = right.volume24hr - left.volume24hr
       if (volumeDiff !== 0) return volumeDiff
@@ -44,6 +38,11 @@ export function rankAutoDiscoveryEvents(events: PolymarketEvent[], now = Date.no
 }
 
 export function startTrendingJob() {
+  if (!config.featuredAutoDiscoveryEnabled) {
+    console.log('[Trending] Auto discovery paused by config')
+    return
+  }
+
   // Run every 6 hours.
   cron.schedule(AUTO_DISCOVERY_CRON, async () => {
     console.log('[Trending] Fetching trending events...')
@@ -68,7 +67,7 @@ async function discoverAndAnalyze() {
   const events = await fetchTrendingEvents(AUTO_DISCOVERY_SCAN_LIMIT)
   const candidates = rankAutoDiscoveryEvents(events)
   console.log(
-    `[Trending] Found ${events.length} trending events, ${candidates.length} eligible long-term candidates (>=72h runway)`
+    `[Trending] Found ${events.length} trending events, ${candidates.length} ranked candidates`
   )
 
   let analyzed = 0

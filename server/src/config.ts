@@ -93,6 +93,7 @@ export const config = {
   analysisCodeAuditRetryDelayMs: parseInt(
     process.env.ANALYSIS_CODE_AUDIT_RETRY_DELAY_MS || process.env.ANALYSIS_CODE_RETRY_DELAY_MS || '8000'
   ),
+  featuredAutoDiscoveryEnabled: process.env.FEATURED_AUTO_DISCOVERY_ENABLED === 'true',
 
   // Allowed frontend origins for CORS
   allowedOrigins: (process.env.ALLOWED_ORIGINS || 'https://polyinsight.online').split(','),

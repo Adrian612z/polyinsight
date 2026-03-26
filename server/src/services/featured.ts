@@ -1,3 +1,7 @@
+import { fetchPolymarketEventForSlug } from '../analysis-runtime/polymarketFetch.js'
+import { supabase } from './supabase.js'
+import { extractPolymarketSlug, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
+
 interface FeaturedDecisionOption {
   market?: number
   ai?: number
@@ -22,6 +26,8 @@ export interface FeaturedRecord {
   expires_at?: string | null
   created_at?: string
 }
+
+export const ADMIN_MANUAL_FEATURED_USER_ID = 'system:admin-featured'
 
 function parseFeatureExpiry(input: string | null | undefined): number | null {
   if (!input) return null
@@ -121,4 +127,71 @@ export function isRenderableFeatured(featured: FeaturedRecord, now = Date.now())
     hasRenderableDecision(featured) &&
     getFeaturedSignalStrength(featured) >= 1
   )
+}
+
+export async function upsertFeaturedFromAnalysisSource(input: {
+  analysisRecordId: string
+  eventUrl: string
+  analysisResult: string
+  fallbackTitle?: string | null
+  fallbackEndDate?: string | null
+  minMispricingScore?: number
+}): Promise<FeaturedRecord | null> {
+  const slug = extractPolymarketSlug(input.eventUrl)
+  const canonicalUrl = toCanonicalPolymarketEventUrl(input.eventUrl)
+  if (!slug || !canonicalUrl) return null
+
+  const decisionData = parseDecisionJson(input.analysisResult)
+  const mispricingScore = calculateMispricingScore(decisionData)
+  const minMispricingScore = input.minMispricingScore ?? 0
+
+  if (!decisionData || mispricingScore < minMispricingScore) {
+    return null
+  }
+
+  let eventTitle =
+    typeof input.fallbackTitle === 'string' && input.fallbackTitle.trim()
+      ? input.fallbackTitle.trim()
+      : slug
+  let eventEndDate =
+    typeof input.fallbackEndDate === 'string' && input.fallbackEndDate.trim()
+      ? input.fallbackEndDate.trim()
+      : null
+
+  try {
+    const event = await fetchPolymarketEventForSlug(slug)
+    if (typeof event.title === 'string' && event.title.trim()) {
+      eventTitle = event.title.trim()
+    }
+    if (typeof event.endDate === 'string' && event.endDate.trim()) {
+      eventEndDate = event.endDate.trim()
+    }
+  } catch (err) {
+    console.warn(`[Featured] Failed to refresh Polymarket metadata for ${slug}:`, err)
+  }
+
+  const category = guessCategory(eventTitle, decisionData)
+  const deadline =
+    typeof decisionData.deadline === 'string' && decisionData.deadline.trim()
+      ? decisionData.deadline.trim()
+      : null
+
+  const { data, error } = await supabase
+    .from('featured_analyses')
+    .upsert({
+      event_slug: slug,
+      event_title: eventTitle,
+      category,
+      polymarket_url: canonicalUrl,
+      analysis_record_id: input.analysisRecordId,
+      decision_data: decisionData,
+      mispricing_score: mispricingScore,
+      is_active: true,
+      expires_at: getFeatureExpiryIso(eventEndDate, deadline),
+    }, { onConflict: 'event_slug' })
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return data as FeaturedRecord
 }
