@@ -16,11 +16,16 @@ function generateReferralCode(): string {
   return code
 }
 
+function normalizeReferralCode(input: string): string {
+  return input.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6)
+}
+
 // POST /api/users/register - Upsert user on first login
 router.post('/register', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
     const { email, displayName, referralCode } = req.body
+    const normalizedReferralCode = typeof referralCode === 'string' ? normalizeReferralCode(referralCode) : ''
 
     // Check if user already exists
     const { data: existing } = await supabase
@@ -80,11 +85,11 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
 
     // Resolve referrer
     let referredBy: string | null = null
-    if (referralCode) {
+    if (normalizedReferralCode) {
       const { data: referrer } = await supabase
         .from('users')
         .select('id')
-        .eq('referral_code', referralCode.toUpperCase())
+        .eq('referral_code', normalizedReferralCode)
         .single()
       if (referrer) referredBy = referrer.id
     }
@@ -121,6 +126,74 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
   } catch (err: unknown) {
     console.error('Register error:', err)
     res.status(500).json({ error: 'Registration failed' })
+  }
+})
+
+router.post('/referral-code', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const rawReferralCode = req.body?.referralCode
+    if (typeof rawReferralCode !== 'string') {
+      res.status(400).json({ error: 'Referral code is required', code: 'REFERRAL_CODE_REQUIRED' })
+      return
+    }
+
+    const referralCode = normalizeReferralCode(rawReferralCode)
+    if (referralCode.length !== 6) {
+      res.status(400).json({ error: 'Referral code must be 6 letters or numbers', code: 'INVALID_REFERRAL_CODE' })
+      return
+    }
+
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, referred_by')
+      .eq('id', req.userId!)
+      .single()
+
+    if (userError || !user) {
+      res.status(404).json({ error: 'User not found', code: 'USER_NOT_FOUND' })
+      return
+    }
+
+    if (user.referred_by) {
+      res.status(409).json({ error: 'Referral code has already been applied', code: 'REFERRAL_ALREADY_SET' })
+      return
+    }
+
+    const { data: referrer, error: referrerError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('referral_code', referralCode)
+      .single()
+
+    if (referrerError || !referrer) {
+      res.status(404).json({ error: 'Referral code not found', code: 'REFERRAL_NOT_FOUND' })
+      return
+    }
+
+    if (referrer.id === req.userId) {
+      res.status(400).json({ error: 'You cannot use your own referral code', code: 'SELF_REFERRAL_NOT_ALLOWED' })
+      return
+    }
+
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('users')
+      .update({
+        referred_by: referrer.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', req.userId!)
+      .select('*')
+      .single()
+
+    if (updateError || !updatedUser) {
+      res.status(500).json({ error: 'Failed to apply referral code', code: 'REFERRAL_APPLY_FAILED' })
+      return
+    }
+
+    res.json({ user: updatedUser })
+  } catch (err) {
+    console.error('Apply referral code error:', err)
+    res.status(500).json({ error: 'Failed to apply referral code', code: 'REFERRAL_APPLY_FAILED' })
   }
 })
 

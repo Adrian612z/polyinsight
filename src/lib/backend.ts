@@ -85,6 +85,9 @@ export const api = {
   register: (body: { email?: string; displayName?: string; referralCode?: string }) =>
     apiRequest('/users/register', { method: 'POST', body: JSON.stringify(body) }),
 
+  applyReferralCode: (referralCode: string) =>
+    apiRequest('/users/referral-code', { method: 'POST', body: JSON.stringify({ referralCode }) }),
+
   getMe: () => apiRequest('/users/me'),
 
   updateMe: (body: { displayName: string }) =>

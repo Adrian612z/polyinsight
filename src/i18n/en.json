@@ -205,7 +205,7 @@
   "walletSelector.errors.connectionFailed": "Connection failed",
 
   "referralAuth.title": "Enter referral code",
-  "referralAuth.subtitle": "Optional before sign-in. Leave it blank to skip.",
+  "referralAuth.subtitle": "Optional after sign-in. Leave it blank to skip.",
   "referralAuth.label": "Referral code",
   "referralAuth.placeholder": "Enter 6-character code",
   "referralAuth.hint": "If a friend invited you, you can enter their code here.",

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, type ComponentType, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { usePrivy } from '@privy-io/react-auth'
 import { useAuthStore } from './store/authStore'
@@ -6,6 +6,7 @@ import { api, setPrivyToken } from './lib/backend'
 import { primeWorkspaceCaches } from './lib/pageCache'
 import { Discovery } from './pages/Discovery'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { ReferralAuthModal } from './components/ReferralAuthModal'
 import { ToastProvider } from './components/Toast'
 
 function lazyNamed<T extends Record<string, unknown>, K extends keyof T & string>(
@@ -28,6 +29,14 @@ function App() {
   const { ready, authenticated, user, getAccessToken } = usePrivy()
   const { setPrivyUser, setUserInfo, signOut } = useAuthStore()
   const registeredRef = useRef(false)
+  const [referralPromptOpen, setReferralPromptOpen] = useState(false)
+
+  const resumePendingAnalysis = () => {
+    const pendingUrl = sessionStorage.getItem('polyinsight-pending-url')
+    if (!pendingUrl) return
+    if (window.location.pathname === '/analyze') return
+    window.location.assign('/analyze')
+  }
 
   // Capture referral code from URL
   useEffect(() => {
@@ -72,12 +81,19 @@ function App() {
             void primeWorkspaceCaches(user.id)
           }
           if (referralCode) localStorage.removeItem('polyinsight_ref')
+          if (res.isNew && !res.user?.referred_by) {
+            setReferralPromptOpen(true)
+            return
+          }
+          setReferralPromptOpen(false)
+          resumePendingAnalysis()
         }).catch((err) => {
           console.error('Backend register failed:', err)
         })
       }
     } else {
       registeredRef.current = false
+      setReferralPromptOpen(false)
       signOut()
     }
   }, [ready, authenticated, user, setPrivyUser, setUserInfo, signOut, getAccessToken])
@@ -116,6 +132,20 @@ function App() {
             </Route>
             <Route path="/admin/*" element={<Navigate to="/" replace />} />
           </Routes>
+          <ReferralAuthModal
+            isOpen={referralPromptOpen}
+            onClose={() => {
+              setReferralPromptOpen(false)
+              resumePendingAnalysis()
+            }}
+            onContinue={async (referralCode) => {
+              if (referralCode) {
+                await api.applyReferralCode(referralCode)
+              }
+              setReferralPromptOpen(false)
+              resumePendingAnalysis()
+            }}
+          />
         </BrowserRouter>
       </ToastProvider>
     </ErrorBoundary>

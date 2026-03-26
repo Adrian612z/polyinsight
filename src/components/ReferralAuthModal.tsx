@@ -6,7 +6,7 @@ import { useToast } from './Toast'
 interface ReferralAuthModalProps {
   isOpen: boolean
   onClose: () => void
-  onContinue: () => void
+  onContinue: (referralCode: string | null) => Promise<void> | void
 }
 
 function normalizeReferralCode(input: string): string {
@@ -21,30 +21,34 @@ export const ReferralAuthModal: React.FC<ReferralAuthModalProps> = ({
   const { t, i18n } = useTranslation()
   const toast = useToast()
   const [value, setValue] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
-    setValue(localStorage.getItem('polyinsight_ref') || '')
+    setValue('')
+    setSubmitting(false)
   }, [isOpen])
 
   const isValid = useMemo(() => value.length === 0 || value.length === 6, [value])
 
   if (!isOpen) return null
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     const normalized = normalizeReferralCode(value)
     if (normalized && normalized.length !== 6) {
       toast.error(t('referralAuth.invalid'))
       return
     }
 
-    if (normalized) {
-      localStorage.setItem('polyinsight_ref', normalized)
-    } else {
-      localStorage.removeItem('polyinsight_ref')
+    setSubmitting(true)
+    try {
+      await onContinue(normalized || null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : null
+      toast.error(message || (i18n.language === 'zh' ? '邀请码提交失败，请稍后重试。' : 'Failed to submit referral code. Please try again.'))
+    } finally {
+      setSubmitting(false)
     }
-
-    onContinue()
   }
 
   return (
@@ -62,7 +66,8 @@ export const ReferralAuthModal: React.FC<ReferralAuthModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
+            disabled={submitting}
+            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 transition-colors disabled:opacity-40"
             aria-label={t('markets.actions.close')}
           >
             <X className="h-4 w-4" />
@@ -101,15 +106,19 @@ export const ReferralAuthModal: React.FC<ReferralAuthModalProps> = ({
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
               onClick={onClose}
-              className="theme-surface-button inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold"
+              disabled={submitting}
+              className="theme-surface-button inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50"
             >
               {t('referralAuth.skip')}
             </button>
             <button
-              onClick={handleContinue}
-              className="theme-accent-button inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold"
+              onClick={() => void handleContinue()}
+              disabled={submitting}
+              className="theme-accent-button inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50"
             >
-              {i18n.language === 'zh' ? '继续登录' : 'Continue to sign in'}
+              {submitting
+                ? (i18n.language === 'zh' ? '提交中...' : 'Submitting...')
+                : (i18n.language === 'zh' ? '继续' : 'Continue')}
             </button>
           </div>
         </div>
