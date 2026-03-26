@@ -53,6 +53,8 @@ export const api = {
   featured: () => request('/admin/featured'),
   addFeatured: (data: Record<string, any>) =>
     request('/admin/featured', { method: 'POST', body: JSON.stringify(data) }),
+  batchFeatured: (action: 'hide' | 'delete', ids: string[]) =>
+    request('/admin/featured/batch', { method: 'POST', body: JSON.stringify({ action, ids }) }),
   updateFeatured: (id: string, data: Record<string, any>) =>
     request(`/admin/featured/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   removeFeatured: (id: string) =>

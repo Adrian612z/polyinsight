@@ -8,6 +8,19 @@ import { buildAnalysisFlowView } from '../services/analysisFlow.js'
 
 const router = Router()
 
+type FeaturedBatchAction = 'hide' | 'delete'
+
+function parseFeaturedBatchIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+
+  return [...new Set(
+    value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )]
+}
+
 // ─── Admin Login (no auth required) ────────────────────────────────
 router.post('/login', async (req: Request, res: Response) => {
   try {
@@ -646,6 +659,49 @@ router.post('/featured', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Add featured error:', err)
     res.status(500).json({ error: 'Failed to add featured' })
+  }
+})
+
+router.post('/featured/batch', async (req: Request, res: Response) => {
+  try {
+    const ids = parseFeaturedBatchIds(req.body?.ids)
+    const action = req.body?.action as FeaturedBatchAction | undefined
+
+    if (ids.length === 0) {
+      res.status(400).json({ error: 'At least one featured item must be selected' })
+      return
+    }
+
+    if (action !== 'hide' && action !== 'delete') {
+      res.status(400).json({ error: 'Unsupported batch action' })
+      return
+    }
+
+    if (action === 'hide') {
+      const { data, error } = await supabase
+        .from('featured_analyses')
+        .update({ is_active: false })
+        .in('id', ids)
+        .select('id')
+
+      if (error) throw error
+
+      res.json({ success: true, affected: data?.length || 0 })
+      return
+    }
+
+    const { data, error } = await supabase
+      .from('featured_analyses')
+      .delete()
+      .in('id', ids)
+      .select('id')
+
+    if (error) throw error
+
+    res.json({ success: true, affected: data?.length || 0 })
+  } catch (err) {
+    console.error('Batch featured action error:', err)
+    res.status(500).json({ error: 'Failed to update featured items' })
   }
 })
 

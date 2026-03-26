@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { Plus, Trash2, Star, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
@@ -17,10 +17,13 @@ interface FeaturedAnalysis {
   created_at: string
 }
 
+type BatchAction = 'hide' | 'delete'
+
 export default function Featured() {
   const [items, setItems] = useState<FeaturedAnalysis[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [form, setForm] = useState({
     event_slug: '',
     event_title: '',
@@ -29,13 +32,45 @@ export default function Featured() {
     mispricing_score: '',
   })
   const [adding, setAdding] = useState(false)
+  const [batchAction, setBatchAction] = useState<BatchAction | null>(null)
+  const [itemActionId, setItemActionId] = useState<string | null>(null)
+  const selectAllRef = useRef<HTMLInputElement | null>(null)
 
-  const fetchData = () => {
+  const fetchData = async () => {
     setLoading(true)
-    api.featured().then((data) => setItems(data.featured || [])).finally(() => setLoading(false))
+    try {
+      const data = await api.featured()
+      const nextItems = data.featured || []
+      const nextIds = new Set(nextItems.map((item: FeaturedAnalysis) => item.id))
+
+      setItems(nextItems)
+      setSelectedIds((current) => current.filter((id) => nextIds.has(id)))
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { void fetchData() }, [])
+
+  const allSelected = items.length > 0 && selectedIds.length === items.length
+  const someSelected = selectedIds.length > 0 && !allSelected
+  const controlsDisabled = loading || adding || batchAction !== null || itemActionId !== null
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = someSelected
+    }
+  }, [someSelected])
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((selectedId) => selectedId !== id) : [...current, id]
+    )
+  }
+
+  const toggleSelectAll = () => {
+    setSelectedIds((current) => (current.length === items.length ? [] : items.map((item) => item.id)))
+  }
 
   const handleAdd = async () => {
     if (!form.event_slug || !form.event_title) return
@@ -47,21 +82,46 @@ export default function Featured() {
       })
       setShowAdd(false)
       setForm({ event_slug: '', event_title: '', category: '', polymarket_url: '', mispricing_score: '' })
-      fetchData()
+      await fetchData()
     } finally {
       setAdding(false)
     }
   }
 
   const handleToggle = async (item: FeaturedAnalysis) => {
-    await api.updateFeatured(item.id, { is_active: !item.is_active })
-    fetchData()
+    setItemActionId(item.id)
+    try {
+      await api.updateFeatured(item.id, { is_active: !item.is_active })
+      await fetchData()
+    } finally {
+      setItemActionId(null)
+    }
   }
 
   const handleDelete = async (id: string) => {
     if (!confirm('确定删除？')) return
-    await api.removeFeatured(id)
-    fetchData()
+    setItemActionId(id)
+    try {
+      await api.removeFeatured(id)
+      setSelectedIds((current) => current.filter((selectedId) => selectedId !== id))
+      await fetchData()
+    } finally {
+      setItemActionId(null)
+    }
+  }
+
+  const handleBatchAction = async (action: BatchAction) => {
+    if (selectedIds.length === 0) return
+    if (action === 'delete' && !confirm(`确定删除选中的 ${selectedIds.length} 条推荐？`)) return
+
+    setBatchAction(action)
+    try {
+      await api.batchFeatured(action, selectedIds)
+      setSelectedIds([])
+      await fetchData()
+    } finally {
+      setBatchAction(null)
+    }
   }
 
   return (
@@ -83,9 +143,60 @@ export default function Featured() {
         ) : items.length === 0 ? (
           <div className="text-center py-12 text-gray-400">暂无推荐</div>
         ) : (
-          <div className="divide-y divide-gray-50">
+          <div>
+            <div className="border-b border-gray-100 bg-gray-50/80 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <label className="inline-flex items-center gap-3 text-sm font-medium text-gray-700 select-none">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  disabled={controlsDisabled}
+                  aria-label="全选推荐"
+                  className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <span>全选</span>
+                <span className="text-xs font-normal text-gray-500">
+                  {selectedIds.length > 0 ? `已选 ${selectedIds.length} / ${items.length}` : `共 ${items.length} 条推荐`}
+                </span>
+              </label>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleBatchAction('hide')}
+                  disabled={selectedIds.length === 0 || controlsDisabled}
+                  className="inline-flex items-center rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {batchAction === 'hide' ? '隐藏中...' : '批量隐藏'}
+                </button>
+                <button
+                  onClick={() => handleBatchAction('delete')}
+                  disabled={selectedIds.length === 0 || controlsDisabled}
+                  className="inline-flex items-center rounded-lg bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {batchAction === 'delete' ? '删除中...' : '批量删除'}
+                </button>
+              </div>
+            </div>
+
+            <div className="divide-y divide-gray-50">
             {items.map((item) => (
-              <div key={item.id} className="p-4 hover:bg-gray-50/50 flex items-start gap-4">
+              <div
+                key={item.id}
+                className={`p-4 flex items-start gap-4 transition-colors ${
+                  selectedIds.includes(item.id) ? 'bg-indigo-50/40' : 'hover:bg-gray-50/50'
+                }`}
+              >
+                <div className="pt-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(item.id)}
+                    onChange={() => toggleSelected(item.id)}
+                    disabled={controlsDisabled}
+                    aria-label={`选择推荐 ${item.event_title}`}
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
                 <div className={`p-2 rounded-lg ${item.is_active ? 'bg-amber-100' : 'bg-gray-100'}`}>
                   <Star className={`w-5 h-5 ${item.is_active ? 'text-amber-500' : 'text-gray-400'}`} />
                 </div>
@@ -111,23 +222,26 @@ export default function Featured() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => handleToggle(item)}
+                    disabled={controlsDisabled}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
                       item.is_active
                         ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
                   >
-                    {item.is_active ? '隐藏' : '显示'}
+                    {itemActionId === item.id ? '处理中...' : item.is_active ? '隐藏' : '显示'}
                   </button>
                   <button
                     onClick={() => handleDelete(item.id)}
-                    className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50"
+                    disabled={controlsDisabled}
+                    className="p-1.5 rounded-lg text-red-400 hover:text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>
             ))}
+            </div>
           </div>
         )}
       </div>
