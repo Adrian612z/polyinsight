@@ -755,17 +755,18 @@ export const Markets: React.FC = () => {
         </main>
 
         {selectedMarketSlug ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 xl:p-8">
+          <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4 md:p-6 xl:p-8">
             <div
               className="animate-fade-in absolute inset-0 bg-black/55 backdrop-blur-sm"
               onClick={() => updateParams({ market: null }, true)}
             />
             <div
               className={clsx(
-                'animate-fade-in-up relative z-10 w-full max-w-5xl overflow-hidden rounded-[30px] border shadow-[0_32px_90px_rgba(15,23,42,0.32)]',
+                'animate-fade-in-up relative z-10 flex min-h-0 w-full max-w-5xl overflow-hidden border shadow-[0_32px_90px_rgba(15,23,42,0.32)]',
+                'h-[100dvh] max-h-[100dvh] rounded-none sm:h-[min(88dvh,960px)] sm:max-h-[88dvh] sm:rounded-[30px]',
                 isDark
-                  ? 'max-h-[88vh] border-white/10 bg-[#0b0f15] text-white'
-                  : 'max-h-[88vh] border-slate-900/10 bg-white text-slate-950'
+                  ? 'border-white/10 bg-[#0b0f15] text-white'
+                  : 'border-slate-900/10 bg-white text-slate-950'
               )}
             >
               <MarketDetailPanel
@@ -847,17 +848,19 @@ const MarketDetailPanel: React.FC<{
   const actionSurfaceClass = isDark
     ? 'theme-surface-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold text-white/84 hover:text-white'
     : 'theme-surface-button inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold'
-  const bodyClass = isModal ? 'flex-1 overflow-y-auto p-6 md:p-7 xl:p-8' : 'flex-1 space-y-5 overflow-y-auto p-5'
+  const bodyClass = isModal
+    ? 'min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 sm:p-6 md:p-7 xl:p-8'
+    : 'min-h-0 flex-1 space-y-5 overflow-y-auto p-5'
   const summaryGridClass = isModal ? 'grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start' : 'space-y-5'
   const sectionStackClass = isModal ? 'mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(320px,0.95fr)] xl:items-start' : 'mt-5 space-y-5'
   const actionWrapClass = isModal ? 'flex flex-col gap-3 border-t pt-5 sm:flex-row' : 'flex flex-col gap-3 sm:flex-row'
   const rulesScrollClass = isModal
-    ? clsx('mt-4 text-sm leading-7', isDark ? 'text-white/70' : 'text-slate-600', 'max-h-[26rem] overflow-y-auto pr-2')
+    ? clsx('mt-4 text-sm leading-7', isDark ? 'text-white/70' : 'text-slate-600', 'max-h-[min(26rem,42dvh)] overflow-y-auto pr-2')
     : clsx('mt-4 text-sm leading-7', isDark ? 'text-white/70' : 'text-slate-600')
 
   return (
-    <div className="flex h-full flex-col">
-      <div className={clsx('flex items-center justify-between border-b px-5 py-4', panelBorderClass)}>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className={clsx('shrink-0 flex items-center justify-between border-b px-5 py-4', panelBorderClass)}>
         <div className={panelTitleClass}>
           {t('markets.panel.metrics')}
         </div>
