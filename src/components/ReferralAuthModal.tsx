@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Ticket, X } from 'lucide-react'
-import { useToast } from './Toast'
 
 interface ReferralAuthModalProps {
   isOpen: boolean
@@ -13,39 +12,71 @@ function normalizeReferralCode(input: string): string {
   return input.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 6)
 }
 
+function getReferralErrorKey(error: unknown): string {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code || '')
+    : ''
+
+  switch (code) {
+    case 'REFERRAL_NOT_FOUND':
+      return 'referralAuth.error.notFound'
+    case 'REFERRAL_ALREADY_SET':
+      return 'referralAuth.error.alreadySet'
+    case 'SELF_REFERRAL_NOT_ALLOWED':
+      return 'referralAuth.error.self'
+    case 'USER_NOT_FOUND':
+      return 'referralAuth.error.account'
+    case 'INVALID_REFERRAL_CODE':
+    case 'REFERRAL_CODE_REQUIRED':
+      return 'referralAuth.invalid'
+    default:
+      return 'referralAuth.error.failed'
+  }
+}
+
 export const ReferralAuthModal: React.FC<ReferralAuthModalProps> = ({
   isOpen,
   onClose,
   onContinue,
 }) => {
   const { t, i18n } = useTranslation()
-  const toast = useToast()
   const [value, setValue] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [errorKey, setErrorKey] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
     setValue('')
     setSubmitting(false)
+    setErrorKey(null)
   }, [isOpen])
 
   const isValid = useMemo(() => value.length === 0 || value.length === 6, [value])
+  const canContinue = value.length === 6 && isValid && !submitting
+  const helperText = errorKey
+    ? t(errorKey)
+    : isValid
+      ? t('referralAuth.hint')
+      : t('referralAuth.invalid')
+  const helperClassName = errorKey || !isValid ? 'text-red-600' : 'text-gray-500'
 
   if (!isOpen) return null
 
   const handleContinue = async () => {
+    if (!canContinue) return
+
     const normalized = normalizeReferralCode(value)
     if (normalized && normalized.length !== 6) {
-      toast.error(t('referralAuth.invalid'))
+      setErrorKey('referralAuth.invalid')
       return
     }
 
     setSubmitting(true)
+    setErrorKey(null)
     try {
       await onContinue(normalized || null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : null
-      toast.error(message || (i18n.language === 'zh' ? '邀请码提交失败，请稍后重试。' : 'Failed to submit referral code. Please try again.'))
+      setErrorKey(getReferralErrorKey(error))
     } finally {
       setSubmitting(false)
     }
@@ -88,18 +119,22 @@ export const ReferralAuthModal: React.FC<ReferralAuthModalProps> = ({
               spellCheck={false}
               maxLength={6}
               value={value}
-              onChange={(event) => setValue(normalizeReferralCode(event.target.value))}
+              onChange={(event) => {
+                setValue(normalizeReferralCode(event.target.value))
+                if (errorKey) setErrorKey(null)
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
-                  handleContinue()
+                  void handleContinue()
                 }
               }}
               placeholder={t('referralAuth.placeholder')}
+              aria-invalid={Boolean(errorKey) || !isValid}
               className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-base font-mono uppercase tracking-[0.24em] text-gray-900 outline-none transition focus:border-terracotta/40 focus:ring-2 focus:ring-terracotta/12"
             />
-            <p className={`text-xs ${isValid ? 'text-gray-500' : 'text-red-600'}`}>
-              {isValid ? t('referralAuth.hint') : t('referralAuth.invalid')}
+            <p className={`text-xs ${helperClassName}`}>
+              {helperText}
             </p>
           </div>
 
@@ -113,8 +148,8 @@ export const ReferralAuthModal: React.FC<ReferralAuthModalProps> = ({
             </button>
             <button
               onClick={() => void handleContinue()}
-              disabled={submitting}
-              className="theme-accent-button inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold disabled:opacity-50"
+              disabled={!canContinue}
+              className="theme-accent-button inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting
                 ? (i18n.language === 'zh' ? '提交中...' : 'Submitting...')

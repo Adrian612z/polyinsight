@@ -210,6 +210,11 @@
   "referralAuth.placeholder": "Enter 6-character code",
   "referralAuth.hint": "If a friend invited you, you can enter their code here.",
   "referralAuth.invalid": "Referral code must be 6 letters or numbers.",
+  "referralAuth.error.notFound": "Referral code not found. Please check it and try again.",
+  "referralAuth.error.alreadySet": "This account already has a referral code applied.",
+  "referralAuth.error.self": "You cannot use your own referral code.",
+  "referralAuth.error.account": "There is a problem with the current account state. Please sign in again.",
+  "referralAuth.error.failed": "Failed to submit the referral code. Please try again.",
   "referralAuth.skip": "Skip for now",
 
   "transfer.title": "Transfer Funds",
