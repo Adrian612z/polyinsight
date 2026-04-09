@@ -746,7 +746,8 @@ Work method:
 5. For sports_binary_outcome, explain the exact path to Yes and No, including remaining fixtures, table position, bracket or playoff path, and the main squad risk.
 6. For sports_multi_option_market, score every actual option in the active market, including draw or overtime-related options when present, and keep the distribution coherent across those mutually exclusive options.
 7. For sports_qualification_bundle or other non-exclusive structures, score only the reportable set from Source 0.5, treat each reported option as that market's Yes-side probability, and do not force them to sum to 100.
-7. Do not overreact to a single game or rumor unless it materially changes roster strength, seeding, or qualification mechanics.
+8. If Source 0.5 decision_option_rows is present, output every row exactly once, including auxiliary or settlement-related rows such as "Completed match?".
+9. Do not overreact to a single game or rumor unless it materially changes roster strength, seeding, or qualification mechanics.
 
 Output requirements:
 - Cite the 4-8 most material sources.
@@ -1321,6 +1322,7 @@ function getStep3StructuredOutputRule(lang: RuntimeLang): string {
 - fair_low / fair_high / fair_mid are your calibrated estimates on a 0-100 scale.
 - fair_low <= fair_mid <= fair_high must hold for every option.
 - Use only the exact option names from Source 0.5 decision_option_rows when that field is present.
+- Output one option object for every row exactly once, even if a row looks auxiliary or settlement-related, such as "Completed match?".
 - sources must include the most material supporting sources for that option.
 - rationale should be concise and explicitly mention deadline pressure when it matters.
 - summary_markdown must be Chinese and concise.`
@@ -1352,6 +1354,7 @@ function getStep3StructuredOutputRule(lang: RuntimeLang): string {
 - fair_low / fair_high / fair_mid are your calibrated estimates on a 0-100 scale.
 - fair_low <= fair_mid <= fair_high must hold for every option.
 - Use only the exact option names from Source 0.5 decision_option_rows when that field is present.
+- Output one option object for every row exactly once, even if a row looks auxiliary or settlement-related, such as "Completed match?".
 - sources must include the most material supporting sources for that option.
 - rationale should be concise and explicitly mention deadline pressure when it matters.
 - summary_markdown should be concise and user-facing.`
