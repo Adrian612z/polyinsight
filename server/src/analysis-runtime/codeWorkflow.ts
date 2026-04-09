@@ -134,6 +134,7 @@ class AsyncSemaphore {
 
 const STEP_SEPARATOR = '\n\n'
 const modelRequestSemaphore = new AsyncSemaphore(config.analysisCodeRequestConcurrency)
+const MAX_STRUCTURED_PROBABILITY_REPAIR_ATTEMPTS = 2
 
 export async function runCodeAnalysisPipeline(
   job: AnalysisJobRecord,
@@ -207,7 +208,13 @@ export async function runStandaloneCodeAnalysis(input: {
     },
     input.hooks
   )
-  const probability = normalizeProbabilityEstimate(probabilityRaw, context, input.lang)
+  const probability = await normalizeProbabilityEstimateWithRepair({
+    rawText: probabilityRaw,
+    context,
+    info,
+    lang: input.lang,
+    hooks: input.hooks,
+  })
   const probabilityJson = JSON.stringify(probability, null, 2)
   const probabilityStep = renderProbabilityStep(probability, input.lang)
 
@@ -377,7 +384,7 @@ function stripPredictionMarketPricing<T>(value: T): T {
   return next as T
 }
 
-function normalizeProbabilityEstimate(
+export function normalizeProbabilityEstimate(
   rawText: string,
   context: WorkflowContext,
   lang: RuntimeLang
@@ -440,6 +447,171 @@ function normalizeProbabilityEstimate(
         ? parsed.summary_markdown.trim()
         : fallbackSummary,
   }
+}
+
+export async function normalizeProbabilityEstimateWithRepair(input: {
+  rawText: string
+  context: WorkflowContext
+  info: string
+  lang: RuntimeLang
+  hooks?: RuntimeHooks
+}): Promise<StructuredProbabilityEstimate> {
+  let candidateText = input.rawText
+
+  for (let repairAttempt = 0; repairAttempt <= MAX_STRUCTURED_PROBABILITY_REPAIR_ATTEMPTS; repairAttempt += 1) {
+    try {
+      return normalizeProbabilityEstimate(candidateText, input.context, input.lang)
+    } catch (error) {
+      if (!isRepairableProbabilityEstimateError(error)) {
+        throw error
+      }
+
+      if (repairAttempt === MAX_STRUCTURED_PROBABILITY_REPAIR_ATTEMPTS) {
+        throw error
+      }
+
+      ensureRuntimeActive(input.hooks)
+      candidateText = await repairProbabilityEstimate({
+        brokenText: candidateText,
+        validationError: error.message,
+        context: input.context,
+        info: input.info,
+        lang: input.lang,
+        hooks: input.hooks,
+        repairAttempt: repairAttempt + 1,
+      })
+    }
+  }
+
+  throw new Error('Structured probability repair exhausted without returning a result')
+}
+
+function isRepairableProbabilityEstimateError(error: unknown): error is Error {
+  if (error instanceof StructuredOutputValidationError) {
+    return true
+  }
+
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error instanceof SyntaxError ||
+    /Could not locate JSON object in model output|Unexpected token|JSON/i.test(error.message)
+  )
+}
+
+async function repairProbabilityEstimate(input: {
+  brokenText: string
+  validationError: string
+  context: WorkflowContext
+  info: string
+  lang: RuntimeLang
+  hooks?: RuntimeHooks
+  repairAttempt: number
+}): Promise<string> {
+  return requestModelText(
+    config.analysisCodeBaseUrl.replace(/\/+$/, ''),
+    getStructuredProbabilityRepairSystemPrompt(input.lang),
+    buildStructuredProbabilityRepairPrompt(input),
+    {
+      model: config.analysisCodeAnalysisModel,
+      maxRetries: 1,
+      retryDelayMs: config.analysisCodeRetryDelayMs,
+      useWebSearch: false,
+      maxOutputTokens: 4200,
+    },
+    input.hooks
+  )
+}
+
+function buildStructuredProbabilityRepairPrompt(input: {
+  brokenText: string
+  validationError: string
+  context: WorkflowContext
+  info: string
+  lang: RuntimeLang
+  repairAttempt: number
+}): string {
+  const expectedRows = getExpectedDecisionOptionRows(input.context)
+  const missingOptionNames = getMissingOptionNamesFromValidationError(input.validationError)
+  const repairInstructions = input.lang === 'zh'
+    ? [
+        '修复要求:',
+        `- 这是第 ${input.repairAttempt} 次修复尝试。`,
+        '- 只返回一个完整 JSON 对象，不要返回 Markdown，不要返回解释。',
+        '- 尽量保留原输出中已经合理的字段与数值。',
+        '- 如果 Source 0.5 decision_option_rows 存在，必须为每一行输出且只输出一个 options[] 项。',
+        '- 即使某一行看起来像附加或结算型子市场，例如 "Completed match?"，也必须补齐。',
+        '- 每个 options[] 项都必须包含: name, market, fair_low, fair_high, fair_mid, confidence, sources, rationale。',
+        '- 不要发明新的 option 名称。',
+      ]
+    : [
+        'Repair instructions:',
+        `- This is repair attempt ${input.repairAttempt}.`,
+        '- Return exactly one complete JSON object only. No Markdown. No explanation.',
+        '- Preserve fields and estimates from the previous output when they are still reasonable.',
+        '- If Source 0.5 decision_option_rows exists, output exactly one options[] object for every row.',
+        '- Even if a row looks auxiliary or settlement-related, such as "Completed match?", include it.',
+        '- Every options[] object must include: name, market, fair_low, fair_high, fair_mid, confidence, sources, rationale.',
+        '- Do not invent extra option names.',
+      ]
+
+  return [
+    '[Source 0.5: Expected Decision Option Rows]',
+    formatRepairJson(expectedRows),
+    '',
+    '[Source 1: Event Information]',
+    input.info,
+    '',
+    '[Previous Invalid Structured Output]',
+    input.brokenText,
+    '',
+    '[Validation Error]',
+    input.validationError,
+    missingOptionNames.length > 0
+      ? ['', '[Missing Option Names]', formatRepairJson(missingOptionNames)].join('\n')
+      : '',
+    '',
+    repairInstructions.join('\n'),
+  ].filter(Boolean).join('\n')
+}
+
+function getStructuredProbabilityRepairSystemPrompt(lang: RuntimeLang): string {
+  return lang === 'zh'
+    ? `你负责修复分析流水线中的结构化概率 JSON。
+只返回严格 JSON。
+当 Source 0.5 decision_option_rows 存在时，必须逐行补齐并且名称完全一致，即使某一行看起来像附加或结算型子市场，例如 "Completed match?"。
+如果原输出里已有合理字段，优先保留而不是重写全部内容。`
+    : `You repair structured probability JSON for the analysis pipeline.
+Return strict JSON only.
+When Source 0.5 decision_option_rows is present, you must emit every row exactly once using the exact row name, even if a row looks auxiliary or settlement-related, such as "Completed match?".
+Preserve valid fields from the previous output whenever possible instead of rewriting everything.`
+}
+
+function getExpectedDecisionOptionRows(context: WorkflowContext): Array<{ name: string; market: number | null }> {
+  const analysisPlan = context.analysisPlan && typeof context.analysisPlan === 'object' ? context.analysisPlan : {}
+  const rows = Array.isArray((analysisPlan as Record<string, unknown>).decision_option_rows)
+    ? ((analysisPlan as Record<string, unknown>).decision_option_rows as Array<Record<string, unknown>>)
+    : []
+
+  return rows.map((row) => ({
+    name: String(row.name || '').trim(),
+    market: typeof row.market === 'number' ? row.market : Number.isFinite(Number(row.market)) ? Number(row.market) : null,
+  })).filter((row) => row.name)
+}
+
+function getMissingOptionNamesFromValidationError(message: string): string[] {
+  const missingMatch = message.match(/^Structured probability output is missing option: (.+)$/)
+  if (!missingMatch) {
+    return []
+  }
+
+  return [missingMatch[1].trim()].filter(Boolean)
+}
+
+function formatRepairJson(value: unknown): string {
+  return JSON.stringify(value, null, 2)
 }
 
 function normalizeProbabilityOption(

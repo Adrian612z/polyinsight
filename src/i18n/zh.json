@@ -210,6 +210,11 @@
   "referralAuth.placeholder": "输入 6 位邀请码",
   "referralAuth.hint": "如果你是通过好友邀请来的，也可以直接在这里填写。",
   "referralAuth.invalid": "邀请码需为 6 位字母或数字。",
+  "referralAuth.error.notFound": "邀请码不存在，请检查后重试。",
+  "referralAuth.error.alreadySet": "你的账号已经绑定过邀请码。",
+  "referralAuth.error.self": "不能填写你自己的邀请码。",
+  "referralAuth.error.account": "当前账号状态异常，请重新登录后再试。",
+  "referralAuth.error.failed": "邀请码提交失败，请稍后重试。",
   "referralAuth.skip": "暂时跳过",
 
   "transfer.title": "转账支付",
