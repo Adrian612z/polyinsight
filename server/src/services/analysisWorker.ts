@@ -1,4 +1,5 @@
 import { config } from '../config.js'
+import { formatAnalysisProviderSummary } from '../analysis-runtime/provider.js'
 import {
   claimQueuedAnalysisJobs,
   createAnalysisWorkerId,
@@ -21,6 +22,22 @@ export function startAnalysisWorker() {
   if (!config.analysisWorkerEnabled) {
     console.log('[AnalysisWorker] Disabled by config')
     return
+  }
+
+  if (config.analysisEngine === 'code') {
+    console.log(
+      `[AnalysisProvider] ${formatAnalysisProviderSummary({
+        engine: config.analysisEngine,
+        baseUrl: config.analysisCodeBaseUrl,
+        apiKey: config.analysisCodeApiKey,
+        models: {
+          extract: config.analysisCodeExtractModel,
+          analysis: config.analysisCodeAnalysisModel,
+          audit: config.analysisCodeAuditModel,
+          report: config.analysisCodeReportModel,
+        },
+      })}`
+    )
   }
 
   void tick()

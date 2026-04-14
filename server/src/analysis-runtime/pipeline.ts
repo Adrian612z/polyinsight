@@ -6,6 +6,7 @@ import {
 } from '../services/analysisJobs.js'
 import { fetchPolymarketEventForSlug } from './polymarketFetch.js'
 import type { PolymarketEvent, PolymarketMarket } from './parity.js'
+import { buildAnalysisProviderHeaders, normalizeAnalysisProviderBaseUrl } from './provider.js'
 
 interface RuntimeOption {
   name: string
@@ -333,7 +334,7 @@ async function callOpenAiCompatibleJson<T>(
     throw new Error('ANALYSIS_CODE_API_KEY is required for code-based analysis runtime')
   }
 
-  const baseUrl = config.analysisCodeBaseUrl.replace(/\/+$/, '')
+  const baseUrl = normalizeAnalysisProviderBaseUrl(config.analysisCodeBaseUrl)
   const text = await requestModelText(baseUrl, systemPrompt, prompt, requestOptions)
   if (!text) {
     throw new Error('Code analysis provider response did not include text content')
@@ -389,10 +390,7 @@ async function requestResponsesApi(
 ): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
   const response = await fetch(`${baseUrl}/responses`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${config.analysisCodeApiKey}`,
-    },
+    headers: buildAnalysisProviderHeaders(config.analysisCodeApiKey || ''),
     body: JSON.stringify({
       model: requestOptions.model,
       instructions: systemPrompt,
@@ -439,10 +437,7 @@ async function requestChatCompletionsApi(
 ): Promise<{ ok: true; text: string } | { ok: false; status: number; error: string }> {
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${config.analysisCodeApiKey}`,
-    },
+    headers: buildAnalysisProviderHeaders(config.analysisCodeApiKey || ''),
     body: JSON.stringify({
       model: requestOptions.model,
       max_tokens: requestOptions.maxOutputTokens || 3500,
