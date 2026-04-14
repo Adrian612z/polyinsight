@@ -20,6 +20,7 @@ import {
   getStep5SystemPrompt,
   type AnalysisPath,
 } from './workflowPrompts.js'
+import { buildAnalysisProviderHeaders, normalizeAnalysisProviderBaseUrl } from './provider.js'
 
 export type RuntimeLang = 'en' | 'zh'
 
@@ -177,7 +178,7 @@ export async function runStandaloneCodeAnalysis(input: {
 
   ensureRuntimeActive(input.hooks)
   const info = await requestModelText(
-    config.analysisCodeBaseUrl.replace(/\/+$/, ''),
+    normalizeAnalysisProviderBaseUrl(config.analysisCodeBaseUrl),
     getStep2SystemPrompt(marketBlindPromptSources),
     buildStep2Prompt(marketBlindPromptSources),
     {
@@ -196,7 +197,7 @@ export async function runStandaloneCodeAnalysis(input: {
 
   ensureRuntimeActive(input.hooks)
   const probabilityRaw = await requestModelText(
-    config.analysisCodeBaseUrl.replace(/\/+$/, ''),
+    normalizeAnalysisProviderBaseUrl(config.analysisCodeBaseUrl),
     getStep3SystemPrompt(toAnalysisPath(context.router.analysis_path), marketBlindPromptSources),
     buildStep3Prompt({ ...marketBlindPromptSources, step2Output: info }),
     {
@@ -231,7 +232,7 @@ export async function runStandaloneCodeAnalysis(input: {
 
   ensureRuntimeActive(input.hooks)
   const risk = await requestModelText(
-    config.analysisCodeBaseUrl.replace(/\/+$/, ''),
+    normalizeAnalysisProviderBaseUrl(config.analysisCodeBaseUrl),
     getStep4SystemPrompt(toAnalysisPath(context.router.analysis_path), promptSources),
     buildStep4Prompt({ ...promptSources, step2Output: info, step3Output: probabilityJson }),
     {
@@ -258,7 +259,7 @@ export async function runStandaloneCodeAnalysis(input: {
 
   ensureRuntimeActive(input.hooks)
   const finalResult = await requestModelText(
-    config.analysisCodeBaseUrl.replace(/\/+$/, ''),
+    normalizeAnalysisProviderBaseUrl(config.analysisCodeBaseUrl),
     getStep5SystemPrompt(toAnalysisPath(context.router.analysis_path), promptSources),
     buildStep5Prompt({ ...promptSources, step2Output: info, step3Output: probabilityJson, step4Output: risk }),
     {
@@ -511,7 +512,7 @@ async function repairProbabilityEstimate(input: {
   repairAttempt: number
 }): Promise<string> {
   return requestModelText(
-    config.analysisCodeBaseUrl.replace(/\/+$/, ''),
+    normalizeAnalysisProviderBaseUrl(config.analysisCodeBaseUrl),
     getStructuredProbabilityRepairSystemPrompt(input.lang),
     buildStructuredProbabilityRepairPrompt(input),
     {
@@ -881,10 +882,7 @@ async function requestResponsesApi(
   const response = await fetch(`${baseUrl}/responses`, {
     method: 'POST',
     signal,
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${config.analysisCodeApiKey}`,
-    },
+    headers: buildAnalysisProviderHeaders(config.analysisCodeApiKey || ''),
     body: JSON.stringify({
       model: requestOptions.model,
       instructions: systemPrompt,
@@ -944,10 +942,7 @@ async function requestChatCompletionsApi(
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     signal,
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${config.analysisCodeApiKey}`,
-    },
+    headers: buildAnalysisProviderHeaders(config.analysisCodeApiKey || ''),
     body: JSON.stringify({
       model: requestOptions.model,
       max_tokens: requestOptions.maxOutputTokens || 3500,
