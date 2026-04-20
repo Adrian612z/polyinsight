@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { buildVisitorFirstTouchMap } from './tracking.js'
+import { buildVisitorFirstSeenMap, buildVisitorFirstTouchMap } from './tracking.js'
 
 describe('buildVisitorFirstTouchMap', () => {
   it('keeps the earliest source for each visitor when later sessions change platform', () => {
@@ -40,5 +40,28 @@ describe('buildVisitorFirstTouchMap', () => {
       sourceType: 'organic',
       sourcePlatform: 'google',
     })
+  })
+})
+
+describe('buildVisitorFirstSeenMap', () => {
+  it('keeps the earliest first_seen_at for each visitor', () => {
+    const map = buildVisitorFirstSeenMap([
+      {
+        visitor_id: 'visitor-1',
+        campaign_code: null,
+        source_type: 'direct',
+        source_platform: 'direct',
+        first_seen_at: '2026-04-20T10:00:00.000Z',
+      },
+      {
+        visitor_id: 'visitor-1',
+        campaign_code: 'featured_fed',
+        source_type: 'campaign',
+        source_platform: 'lark',
+        first_seen_at: '2026-04-19T08:00:00.000Z',
+      },
+    ])
+
+    expect(map.get('visitor-1')).toBe(Date.parse('2026-04-19T08:00:00.000Z'))
   })
 })

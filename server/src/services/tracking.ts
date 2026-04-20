@@ -158,6 +158,7 @@ export interface GrowthBreakdownRow {
   key: string
   label: string
   visits: number
+  newVisitorVisits: number
   uniqueVisitors: number
   registrations: number
   firstAnalyses: number
@@ -845,6 +846,32 @@ export function buildVisitorFirstTouchMap(
   return map
 }
 
+export function buildVisitorFirstSeenMap(
+  sessions: SessionSourceRecord[],
+): Map<string, number> {
+  const sorted = [...sessions].sort((left, right) => {
+    const leftTime = Date.parse(left.first_seen_at || '')
+    const rightTime = Date.parse(right.first_seen_at || '')
+    if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+      return leftTime - rightTime
+    }
+    return 0
+  })
+
+  const map = new Map<string, number>()
+  for (const session of sorted) {
+    const visitorId = normalizeIdentifier(session.visitor_id)
+    if (!visitorId || map.has(visitorId)) continue
+
+    const firstSeenTime = Date.parse(session.first_seen_at || '')
+    if (Number.isFinite(firstSeenTime)) {
+      map.set(visitorId, firstSeenTime)
+    }
+  }
+
+  return map
+}
+
 async function getUserCreatedAt(userId: string): Promise<string | null> {
   const { data, error } = await supabase
     .from('users')
@@ -865,7 +892,7 @@ async function resolveRegisteredAt(userId: string, preferred?: string | null): P
 }
 
 function ensureGrowthBreakdownRow(
-  map: Map<string, GrowthBreakdownRow & { visitorIds: Set<string> }>,
+  map: Map<string, GrowthBreakdownRow & { visitorIds: Set<string>; newVisitorIds: Set<string> }>,
   groupBy: GrowthGroupBy,
   source: {
     campaignCode?: string | null
@@ -881,6 +908,7 @@ function ensureGrowthBreakdownRow(
     key,
     label: getBreakdownLabel(groupBy, key),
     visits: 0,
+    newVisitorVisits: 0,
     uniqueVisitors: 0,
     registrations: 0,
     firstAnalyses: 0,
@@ -891,6 +919,7 @@ function ensureGrowthBreakdownRow(
     registerToFirstAnalysisRate: 0,
     registerToPayRate: 0,
     visitorIds: new Set<string>(),
+    newVisitorIds: new Set<string>(),
   }
 
   map.set(key, created)
@@ -1015,6 +1044,9 @@ export async function getGrowthAnalytics(days = 30, groupBy: GrowthGroupBy = 'so
   const visitorFirstTouchMap = buildVisitorFirstTouchMap(
     (visitorSourceSessions || []) as SessionSourceRecord[],
   )
+  const visitorFirstSeenMap = buildVisitorFirstSeenMap(
+    (visitorSourceSessions || []) as SessionSourceRecord[],
+  )
 
   const approvedOrderUserIds = [...new Set(
     (approvedOrders || [])
@@ -1057,7 +1089,7 @@ export async function getGrowthAnalytics(days = 30, groupBy: GrowthGroupBy = 'so
       },
     ]),
   )
-  const breakdownMap = new Map<string, GrowthBreakdownRow & { visitorIds: Set<string> }>()
+  const breakdownMap = new Map<string, GrowthBreakdownRow & { visitorIds: Set<string>; newVisitorIds: Set<string> }>()
 
   for (const session of (sessions || []) as Array<VisitSessionRow>) {
     const acquisitionSource = visitorFirstTouchMap.get(session.visitor_id) || toAttributionSourceBucket({
@@ -1073,6 +1105,16 @@ export async function getGrowthAnalytics(days = 30, groupBy: GrowthGroupBy = 'so
     bucket.visits += 1
     if (session.visitor_id) {
       bucket.visitorIds.add(session.visitor_id)
+
+      const visitorFirstTouch = visitorFirstTouchMap.get(session.visitor_id)
+      const firstSeenTime = visitorFirstSeenMap.get(session.visitor_id)
+      if (
+        visitorFirstTouch &&
+        typeof firstSeenTime === 'number' &&
+        firstSeenTime >= cutoff.getTime()
+      ) {
+        bucket.newVisitorIds.add(session.visitor_id)
+      }
     }
 
     const dayKey = toDayKey(session.first_seen_at)
@@ -1157,6 +1199,7 @@ export async function getGrowthAnalytics(days = 30, groupBy: GrowthGroupBy = 'so
         key: row.key,
         label: row.label,
         visits: row.visits,
+        newVisitorVisits: row.newVisitorIds.size,
         uniqueVisitors,
         registrations: row.registrations,
         firstAnalyses: row.firstAnalyses,

@@ -49,6 +49,7 @@ interface GrowthBreakdownRow {
   key: string
   label: string
   visits: number
+  newVisitorVisits: number
   uniqueVisitors: number
   registrations: number
   firstAnalyses: number
@@ -221,6 +222,7 @@ export default function Growth() {
               <tr className="bg-gray-50 border-b border-gray-100">
                 <th className="text-left px-4 py-3 font-medium text-gray-600">来源</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">访问</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">新访客访问</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">访客</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">注册</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">首个分析</th>
@@ -235,7 +237,7 @@ export default function Growth() {
             <tbody>
               {breakdown.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-12 text-gray-400">暂无增长数据</td>
+                  <td colSpan={12} className="text-center py-12 text-gray-400">暂无增长数据</td>
                 </tr>
               ) : (
                 breakdown.map((row) => (
@@ -245,6 +247,7 @@ export default function Growth() {
                       <div className="text-xs text-gray-400">{row.key || '—'}</div>
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">{row.visits}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-700">{row.newVisitorVisits}</td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">{row.uniqueVisitors}</td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">{row.registrations}</td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">{row.firstAnalyses}</td>
