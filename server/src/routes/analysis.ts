@@ -13,6 +13,12 @@ import { resolveCanonicalPolymarketEventUrl } from '../analysis-runtime/polymark
 
 const router = Router()
 
+function isMissingAnalysisAttributionColumn(error: { code?: string; message?: string; details?: string | null; hint?: string | null }): boolean {
+  const message = [error.code, error.message, error.details, error.hint].filter(Boolean).join(' ')
+  return /analysis_records\.attribution_|attribution_session_id|attribution_campaign_code|attribution_referral_code|attribution_source_type|attribution_source_platform/i.test(message)
+    && /column|schema cache|does not exist|not found|42703/i.test(message)
+}
+
 // Limit analysis creation per authenticated user without affecting poll/history requests.
 const createAnalysisLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -77,23 +83,47 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
     }
 
     // 1. Create analysis record
-    const { data: record, error: dbError } = await supabase
+    let record: {
+      id: string
+      event_url: string
+      status: string
+      user_id: string
+      credits_charged: number
+    } | null = null
+
+    const insertPayload: Record<string, unknown> = {
+      event_url: canonicalUrl,
+      status: 'pending',
+      user_id: userId,
+      credits_charged: hasUnlimitedAccess ? 0 : config.analysisCost,
+      attribution_session_id: trackingSnapshot?.sessionId || null,
+      attribution_campaign_code: trackingSnapshot?.campaignCode || null,
+      attribution_referral_code: trackingSnapshot?.referralCode || null,
+      attribution_source_type: trackingSnapshot?.sourceType || null,
+      attribution_source_platform: trackingSnapshot?.sourcePlatform || null,
+    }
+
+    let insertResult = await supabase
       .from('analysis_records')
-      .insert({
-        event_url: canonicalUrl,
-        status: 'pending',
-        user_id: userId,
-        credits_charged: hasUnlimitedAccess ? 0 : config.analysisCost,
-        attribution_session_id: trackingSnapshot?.sessionId || null,
-        attribution_campaign_code: trackingSnapshot?.campaignCode || null,
-        attribution_referral_code: trackingSnapshot?.referralCode || null,
-        attribution_source_type: trackingSnapshot?.sourceType || null,
-        attribution_source_platform: trackingSnapshot?.sourcePlatform || null,
-      })
+      .insert(insertPayload)
       .select()
       .single()
 
-    if (dbError) throw dbError
+    if (insertResult.error && isMissingAnalysisAttributionColumn(insertResult.error)) {
+      insertResult = await supabase
+        .from('analysis_records')
+        .insert({
+          event_url: canonicalUrl,
+          status: 'pending',
+          user_id: userId,
+          credits_charged: hasUnlimitedAccess ? 0 : config.analysisCost,
+        })
+        .select()
+        .single()
+    }
+
+    if (insertResult.error || !insertResult.data) throw insertResult.error || new Error('Failed to create analysis record')
+    record = insertResult.data as typeof record
 
     // 2. Deduct credits (includes referral commission)
     let newBalance: number

@@ -108,6 +108,17 @@ function isOrderReusable(order: BillingOrderRow, expectedAmountTokens: number): 
     && (!order.expires_at || new Date(order.expires_at).getTime() > Date.now())
 }
 
+function isMissingBillingAttributionColumn(error: {
+  code?: string
+  message?: string
+  details?: string | null
+  hint?: string | null
+}): boolean {
+  const message = [error.code, error.message, error.details, error.hint].filter(Boolean).join(' ')
+  return /billing_orders\.attribution_|attribution_session_id|attribution_campaign_code|attribution_referral_code|attribution_source_type|attribution_source_platform/i.test(message)
+    && /column|schema cache|does not exist|not found|42703/i.test(message)
+}
+
 export function listBillingPlans(): BillingPlanDefinition[] {
   return Object.values(BILLING_PLANS)
 }
@@ -209,14 +220,19 @@ export async function createBillingOrder(
         .select()
         .single()
 
-      if (reusableUpdateErr) throw reusableUpdateErr
+      if (reusableUpdateErr) {
+        if (isMissingBillingAttributionColumn(reusableUpdateErr)) {
+          return reusableOrder
+        }
+        throw reusableUpdateErr
+      }
       return updatedReusable as BillingOrderRow
     }
 
     return reusableOrder
   }
 
-  const { data, error } = await supabase
+  let insertResult = await supabase
     .from('billing_orders')
     .insert({
       user_id: userId,
@@ -234,8 +250,23 @@ export async function createBillingOrder(
     .select()
     .single()
 
-  if (error) throw error
-  return data
+  if (insertResult.error && isMissingBillingAttributionColumn(insertResult.error)) {
+    insertResult = await supabase
+      .from('billing_orders')
+      .insert({
+        user_id: userId,
+        plan_id: plan.id,
+        status: 'created',
+        expected_amount_tokens: expectedAmountTokens,
+        expected_credits: expectedCredits,
+        expires_at: expiresAt,
+      })
+      .select()
+      .single()
+  }
+
+  if (insertResult.error) throw insertResult.error
+  return insertResult.data
 }
 
 export async function getBillingOverview(userId: string) {

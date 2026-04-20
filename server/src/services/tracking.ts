@@ -17,6 +17,15 @@ const VALID_SOURCE_TYPES = new Set<SourceType>([
   'unknown',
 ])
 
+function isMissingSchemaError(
+  error: { code?: string; message?: string; details?: string | null; hint?: string | null },
+  identifiers: string[],
+): boolean {
+  const message = [error.code, error.message, error.details, error.hint].filter(Boolean).join(' ')
+  return identifiers.some((identifier) => new RegExp(identifier, 'i').test(message))
+    && /column|schema cache|table|relation|does not exist|not found|PGRST205|42703|42P01/i.test(message)
+}
+
 export interface VisitSessionRow {
   id: string
   visitor_id: string
@@ -363,7 +372,12 @@ export async function getVisitSession(sessionId: string): Promise<VisitSessionRo
     .eq('id', normalizedId)
     .maybeSingle()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingSchemaError(error, ['visit_sessions'])) {
+      return null
+    }
+    throw error
+  }
   return (data as VisitSessionRow | null) || null
 }
 
@@ -411,7 +425,34 @@ export async function upsertVisitSession(raw: TrackingSessionInput): Promise<Vis
     .select('*')
     .single()
 
-  if (error || !data) throw error || new Error('Failed to upsert visit session')
+  if (error || !data) {
+    if (error && isMissingSchemaError(error, ['visit_sessions'])) {
+      return {
+        id: payload.id,
+        visitor_id: payload.visitor_id,
+        user_id: payload.user_id,
+        campaign_code: payload.campaign_code,
+        referral_code: payload.referral_code,
+        source_type: payload.source_type,
+        source_platform: payload.source_platform,
+        utm_source: payload.utm_source,
+        utm_medium: payload.utm_medium,
+        utm_campaign: payload.utm_campaign,
+        utm_content: payload.utm_content,
+        referrer_url: payload.referrer_url,
+        referrer_host: payload.referrer_host,
+        landing_path: payload.landing_path,
+        landing_query: payload.landing_query,
+        locale: payload.locale,
+        user_agent: payload.user_agent,
+        first_seen_at: payload.first_seen_at,
+        last_seen_at: payload.last_seen_at,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at,
+      }
+    }
+    throw error || new Error('Failed to upsert visit session')
+  }
   return data as VisitSessionRow
 }
 
@@ -507,7 +548,33 @@ async function upsertUserAttributionFromSession(
     .select('*')
     .single()
 
-  if (error || !data) throw error || new Error('Failed to upsert user attribution')
+  if (error || !data) {
+    if (error && isMissingSchemaError(error, ['user_attribution'])) {
+      return {
+        user_id: userId,
+        first_session_id: payload.first_session_id,
+        first_campaign_code: payload.first_campaign_code,
+        first_referral_code: payload.first_referral_code,
+        first_source_type: payload.first_source_type,
+        first_source_platform: payload.first_source_platform,
+        last_session_id: payload.last_session_id,
+        last_campaign_code: payload.last_campaign_code,
+        last_referral_code: payload.last_referral_code,
+        last_source_type: payload.last_source_type,
+        last_source_platform: payload.last_source_platform,
+        registered_at: payload.registered_at,
+        first_analysis_record_id: null,
+        first_analysis_at: null,
+        first_paid_order_id: null,
+        first_paid_at: null,
+        approved_order_count: 0,
+        approved_order_revenue_tokens: 0,
+        created_at: payload.created_at,
+        updated_at: payload.updated_at,
+      }
+    }
+    throw error || new Error('Failed to upsert user attribution')
+  }
   return data as UserAttributionRow
 }
 
@@ -518,7 +585,12 @@ export async function getUserAttribution(userId: string): Promise<UserAttributio
     .eq('user_id', userId)
     .maybeSingle()
 
-  if (error) throw error
+  if (error) {
+    if (isMissingSchemaError(error, ['user_attribution'])) {
+      return null
+    }
+    throw error
+  }
   return (data as UserAttributionRow | null) || null
 }
 
@@ -553,7 +625,12 @@ export async function recordGrowthEvent(input: GrowthEventInput): Promise<void> 
   }
 
   const { error } = await supabase.from('growth_events').insert(payload)
-  if (error) throw error
+  if (error) {
+    if (isMissingSchemaError(error, ['growth_events'])) {
+      return
+    }
+    throw error
+  }
 }
 
 export async function markFirstCompletedAnalysis(params: {
@@ -879,6 +956,40 @@ export async function getGrowthAnalytics(days = 30, groupBy: GrowthGroupBy = 'so
       .not('approved_at', 'is', null)
       .gte('approved_at', cutoffIso),
   ])
+
+  const schemaMissing = [sessionsError, registrationsError, firstAnalysesError, firstPayersError, approvedOrdersError]
+    .filter(Boolean)
+    .some((error) => isMissingSchemaError(error!, [
+      'visit_sessions',
+      'user_attribution',
+      'analysis_records\\.attribution_',
+      'billing_orders\\.attribution_',
+    ]))
+
+  if (schemaMissing) {
+    const seriesDates = buildDateSeries(normalizedDays)
+    return {
+      summary: {
+        visits: 0,
+        uniqueVisitors: 0,
+        registrations: 0,
+        firstAnalyses: 0,
+        payers: 0,
+        approvedOrders: 0,
+        revenueTokens: 0,
+      },
+      series: seriesDates.map((date) => ({
+        date,
+        visits: 0,
+        registrations: 0,
+        firstAnalyses: 0,
+        payers: 0,
+        approvedOrders: 0,
+        revenueTokens: 0,
+      })),
+      breakdown: [],
+    }
+  }
 
   if (sessionsError) throw sessionsError
   if (registrationsError) throw registrationsError

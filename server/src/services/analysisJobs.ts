@@ -57,6 +57,17 @@ const ANALYSIS_JOB_SELECT = `
 
 let didWarnMissingClaimRpc = false
 
+function isMissingAnalysisAttributionColumn(error: {
+  code?: string
+  message?: string
+  details?: string | null
+  hint?: string | null
+}): boolean {
+  const message = [error.code, error.message, error.details, error.hint].filter(Boolean).join(' ')
+  return /analysis_records\.attribution_|attribution_session_id|attribution_campaign_code|attribution_referral_code|attribution_source_type|attribution_source_platform/i.test(message)
+    && /column|schema cache|does not exist|not found|42703/i.test(message)
+}
+
 export async function enqueueAnalysisJob(input: {
   analysisRecordId: string
   userId: string
@@ -314,7 +325,7 @@ export async function failAnalysisRecordAndRefund(
 }
 
 export async function markAnalysisRecordCompleted(recordId: string, result: string): Promise<void> {
-  const { data, error } = await supabase
+  let updateResult = await supabase
     .from('analysis_records')
     .update({
       status: 'completed',
@@ -335,7 +346,31 @@ export async function markAnalysisRecordCompleted(recordId: string, result: stri
     `)
     .maybeSingle()
 
-  if (error) throw error
+  if (updateResult.error && isMissingAnalysisAttributionColumn(updateResult.error)) {
+    updateResult = await supabase
+      .from('analysis_records')
+      .update({
+        status: 'completed',
+        analysis_result: result,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', recordId)
+      .eq('status', 'pending')
+      .select('id, user_id, event_url')
+      .maybeSingle()
+  }
+
+  if (updateResult.error) throw updateResult.error
+  const data = updateResult.data as {
+    id: string
+    user_id: string
+    event_url: string
+    attribution_session_id?: string | null
+    attribution_campaign_code?: string | null
+    attribution_referral_code?: string | null
+    attribution_source_type?: string | null
+    attribution_source_platform?: string | null
+  } | null
 
   if (data?.user_id && !data.user_id.startsWith('system:')) {
     await markFirstCompletedAnalysis({
