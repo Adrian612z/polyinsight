@@ -72,7 +72,7 @@ function cleanupMarketingParams(): void {
   const url = new URL(window.location.href)
   let changed = false
 
-  for (const key of ['c', 'ref', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content']) {
+  for (const key of ['c', 'ref', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'internal_preview']) {
     if (url.searchParams.has(key)) {
       url.searchParams.delete(key)
       changed = true
@@ -83,6 +83,10 @@ function cleanupMarketingParams(): void {
     const nextUrl = `${url.pathname}${url.search}${url.hash}`
     window.history.replaceState({}, '', nextUrl)
   }
+}
+
+function isInternalPreview(params: URLSearchParams): boolean {
+  return params.get('internal_preview') === '1'
 }
 
 function hasTrackingSignal(context: Omit<TrackingContext, 'sessionId' | 'visitorId' | 'landingPath' | 'landingQuery' | 'locale'>): boolean {
@@ -153,14 +157,15 @@ export function getTrackingContext(): TrackingContext {
   const sessionId = getTrackingSessionId()
   const visitorId = getTrackingVisitorId()
   const params = new URLSearchParams(window.location.search)
+  const internalPreview = isInternalPreview(params)
   const currentContext = {
-    campaignCode: normalizeText(params.get('c') || params.get('utm_campaign'), 120),
-    referralCode: normalizeText(params.get('ref'), 48),
-    utmSource: normalizeText(params.get('utm_source'), 120),
-    utmMedium: normalizeText(params.get('utm_medium'), 120),
-    utmCampaign: normalizeText(params.get('utm_campaign'), 160),
-    utmContent: normalizeText(params.get('utm_content'), 160),
-    referrerUrl: resolveExternalReferrer(),
+    campaignCode: internalPreview ? null : normalizeText(params.get('c') || params.get('utm_campaign'), 120),
+    referralCode: internalPreview ? null : normalizeText(params.get('ref'), 48),
+    utmSource: internalPreview ? null : normalizeText(params.get('utm_source'), 120),
+    utmMedium: internalPreview ? null : normalizeText(params.get('utm_medium'), 120),
+    utmCampaign: internalPreview ? null : normalizeText(params.get('utm_campaign'), 160),
+    utmContent: internalPreview ? null : normalizeText(params.get('utm_content'), 160),
+    referrerUrl: internalPreview ? null : resolveExternalReferrer(),
     sourceType: null as string | null,
     sourcePlatform: null as string | null,
   }
@@ -234,6 +239,12 @@ async function postTracking(path: string, body: unknown): Promise<void> {
 
 export async function initializeTracking(): Promise<TrackingContext> {
   const context = getTrackingContext()
+  const params = new URLSearchParams(window.location.search)
+  if (isInternalPreview(params)) {
+    cleanupMarketingParams()
+    return context
+  }
+
   await postTracking('/tracking/session', context)
 
   const trackedLanding = sessionStorage.getItem(TRACKED_LANDING_KEY)

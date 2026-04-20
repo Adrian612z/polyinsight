@@ -577,7 +577,21 @@ router.post('/analyses/:id/publish', async (req: Request, res: Response) => {
         .eq('analysis_record_id', analysis.id)
         .maybeSingle()
 
-      featured = (existingFeatured as FeaturedRecord | null) || candidate.record
+      if (existingFeatured) {
+        featured = existingFeatured as FeaturedRecord
+      } else {
+        const { data: createdFeatured, error: createFeaturedError } = await supabase
+          .from('featured_analyses')
+          .upsert(candidate.record, { onConflict: 'event_slug' })
+          .select('*')
+          .single()
+
+        if (createFeaturedError || !createdFeatured) {
+          throw createFeaturedError || new Error('Failed to create featured record for Lark publish')
+        }
+
+        featured = createdFeatured as FeaturedRecord
+      }
     }
 
     if (target === 'lark' || target === 'both') {

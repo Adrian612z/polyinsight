@@ -38,7 +38,8 @@ describe('buildFeaturedLarkText', () => {
     expect(text).toContain('事件: Bitcoin above 120k by year end')
     expect(text).toContain('主信号: Yes: AI 53% vs market 41% (edge 12%)')
     expect(text).toContain('建议方向: Buy Yes')
-    expect(text).toContain('utm_source=lark')
+    expect(text).toContain('内部预览链接: https://polyinsight.online/?c=featured_btc-above-120k&internal_preview=1')
+    expect(text).toContain('utm_source=x')
     expect(text).toContain('c=featured_btc-above-120k')
   })
 

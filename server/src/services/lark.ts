@@ -39,11 +39,18 @@ function buildCampaignCode(featured: FeaturedRecord): string {
   return `featured_${featured.event_slug}`
 }
 
-function buildPolyInsightLink(featured: FeaturedRecord): string {
+function buildInternalPreviewLink(featured: FeaturedRecord): string {
   const url = new URL(config.publicAppUrl)
   url.searchParams.set('c', buildCampaignCode(featured))
-  url.searchParams.set('utm_source', 'lark')
-  url.searchParams.set('utm_medium', 'bot')
+  url.searchParams.set('internal_preview', '1')
+  return url.toString()
+}
+
+function buildXShareLink(featured: FeaturedRecord): string {
+  const url = new URL(config.publicAppUrl)
+  url.searchParams.set('c', buildCampaignCode(featured))
+  url.searchParams.set('utm_source', 'x')
+  url.searchParams.set('utm_medium', 'social')
   url.searchParams.set('utm_campaign', 'featured_auto')
   return url.toString()
 }
@@ -125,7 +132,8 @@ export function buildFeaturedLarkText(featured: FeaturedRecord): string {
     `风险提示: ${riskReason}`,
     `到期时间: ${normalizeText(decision?.deadline, featured.expires_at || 'N/A')}`,
     `Polymarket: ${normalizeText(featured.polymarket_url)}`,
-    `PolyInsight: ${buildPolyInsightLink(featured)}`,
+    `内部预览链接: ${buildInternalPreviewLink(featured)}`,
+    `X 分享链接: ${buildXShareLink(featured)}`,
     guidance.note ? `系统提示: ${guidance.note}` : null,
   ].filter(Boolean).join('\n')
 }

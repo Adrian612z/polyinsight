@@ -96,6 +96,7 @@ export const config = {
   featuredAutoDiscoveryEnabled: process.env.FEATURED_AUTO_DISCOVERY_ENABLED === 'true',
   publicAppUrl: optionalEnv('PUBLIC_APP_URL') || 'https://polyinsight.online',
   larkBotWebhookUrl: optionalEnv('LARK_BOT_WEBHOOK_URL'),
+  larkAutoPushDailyLimit: parseInt(process.env.LARK_AUTO_PUSH_DAILY_LIMIT || '8'),
   outboundHttpProxy:
     optionalEnv('OUTBOUND_HTTP_PROXY') ||
     optionalEnv('HTTPS_PROXY') ||
