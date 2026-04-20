@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { supabase } from '../services/supabase.js'
 import { attachTransactionToBillingOrder, releaseBillingOrderTransaction } from '../services/billing.js'
 import { verifyAndProcessTransaction } from '../services/transaction.js'
+import { recordGrowthEvent } from '../services/tracking.js'
 
 const router = Router()
 const TX_HASH_REGEX = /^0x[a-fA-F0-9]{64}$/
@@ -106,6 +107,34 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     void verifyAndProcessTransaction(tx_hash).catch((verifyErr) => {
       console.error('Automatic transaction verification error:', verifyErr)
     })
+
+    if (attachedOrder && typeof attachedOrder === 'object' && attachedOrder !== null) {
+      const order = attachedOrder as {
+        id: string
+        attribution_session_id?: string | null
+        attribution_campaign_code?: string | null
+        attribution_referral_code?: string | null
+        attribution_source_type?: string | null
+        attribution_source_platform?: string | null
+        plan_id?: string | null
+      }
+
+      await recordGrowthEvent({
+        eventName: 'payment_submitted',
+        sessionId: order.attribution_session_id || null,
+        userId: req.userId!,
+        pagePath: '/billing',
+        campaignCode: order.attribution_campaign_code || null,
+        referralCode: order.attribution_referral_code || null,
+        sourceType: order.attribution_source_type || null,
+        sourcePlatform: order.attribution_source_platform || null,
+        metadata: {
+          orderId: order.id,
+          txHash: tx_hash,
+          planId: order.plan_id || null,
+        },
+      })
+    }
 
     res.json({ transaction: data, billingOrder: attachedOrder })
   } catch (err) {

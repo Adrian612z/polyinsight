@@ -86,7 +86,7 @@ describe('fetchPolymarketEventForSlug', () => {
     ])
     expect(event).toMatchObject({
       id: 'event-1',
-      slug: 'gemini-3pt5-released-by-march-31',
+      slug: 'gemini-3pt5-released-by-june-30',
       title: 'Gemini 3.5 released by March 31?',
       description: 'Market description',
       tags: [{ slug: 'ai' }],

@@ -9,6 +9,7 @@ import {
   listBillingPlans,
 } from '../services/billing.js'
 import { verifyAndProcessTransaction } from '../services/transaction.js'
+import { getAttributionSnapshotBySessionId, recordGrowthEvent } from '../services/tracking.js'
 
 const router = Router()
 
@@ -49,13 +50,38 @@ router.post('/orders', authMiddleware, async (req: Request, res: Response) => {
   try {
     const planId = req.body?.planId as BillingPlanId | undefined
     const amount = req.body?.amount as number | undefined
+    const trackingSessionId =
+      typeof req.body?.trackingSessionId === 'string' ? req.body.trackingSessionId : null
 
     if (!planId || !['topup', 'monthly', 'unlimited'].includes(planId)) {
       res.status(400).json({ error: 'A valid billing plan is required' })
       return
     }
 
-    const order = await createBillingOrder(req.userId!, planId, amount)
+    const trackingSnapshot = await getAttributionSnapshotBySessionId(trackingSessionId)
+    const order = await createBillingOrder(req.userId!, planId, amount, {
+      sessionId: trackingSnapshot?.sessionId || null,
+      campaignCode: trackingSnapshot?.campaignCode || null,
+      referralCode: trackingSnapshot?.referralCode || null,
+      sourceType: trackingSnapshot?.sourceType || null,
+      sourcePlatform: trackingSnapshot?.sourcePlatform || null,
+    })
+
+    if (trackingSnapshot) {
+      await recordGrowthEvent({
+        eventName: 'billing_order_created',
+        sessionId: trackingSnapshot.sessionId,
+        visitorId: trackingSnapshot.visitorId,
+        userId: req.userId!,
+        pagePath: '/billing',
+        metadata: {
+          orderId: order.id,
+          planId,
+          amount: amount ?? null,
+        },
+      })
+    }
+
     res.json({ order })
   } catch (err) {
     if (err instanceof Error && err.message === 'INVALID_TOPUP_AMOUNT') {

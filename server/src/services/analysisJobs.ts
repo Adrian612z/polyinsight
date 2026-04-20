@@ -3,6 +3,7 @@ import { supabase } from './supabase.js'
 import { config } from '../config.js'
 import { refundAnalysisCreditsIfNeeded } from './credit.js'
 import { ADMIN_MANUAL_FEATURED_USER_ID, upsertFeaturedFromAnalysisSource } from './featured.js'
+import { markFirstCompletedAnalysis } from './tracking.js'
 
 export type AnalysisEngine = 'n8n' | 'code'
 export type AnalysisJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
@@ -322,10 +323,32 @@ export async function markAnalysisRecordCompleted(recordId: string, result: stri
     })
     .eq('id', recordId)
     .eq('status', 'pending')
-    .select('id, user_id, event_url')
+    .select(`
+      id,
+      user_id,
+      event_url,
+      attribution_session_id,
+      attribution_campaign_code,
+      attribution_referral_code,
+      attribution_source_type,
+      attribution_source_platform
+    `)
     .maybeSingle()
 
   if (error) throw error
+
+  if (data?.user_id && !data.user_id.startsWith('system:')) {
+    await markFirstCompletedAnalysis({
+      userId: data.user_id,
+      analysisRecordId: data.id,
+      sessionId: data.attribution_session_id || null,
+      campaignCode: data.attribution_campaign_code || null,
+      referralCode: data.attribution_referral_code || null,
+      sourceType: data.attribution_source_type || null,
+      sourcePlatform: data.attribution_source_platform || null,
+      eventUrl: data.event_url || null,
+    })
+  }
 
   if (data?.user_id === ADMIN_MANUAL_FEATURED_USER_ID) {
     try {

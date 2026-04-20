@@ -1,11 +1,8 @@
-import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
-import { promisify } from 'util'
 import { fileURLToPath } from 'url'
+import { fetchJsonWithCurl as fetchJsonWithCurlProxy } from '../utils/network.js'
 import { guessCategory } from './featured.js'
-
-const execFileAsync = promisify(execFile)
 
 export type MarketTerminalCategory =
   | 'sports'
@@ -315,7 +312,7 @@ function normalizeMarket(raw: RawPolymarketMarket): MarketTerminalRow | null {
 }
 
 async function fetchJsonWithCurl<T>(url: string): Promise<T> {
-  const { stdout } = await execFileAsync('curl', [
+  return fetchJsonWithCurlProxy<T>(url, [
     '-sS',
     '--fail',
     '--location',
@@ -326,12 +323,9 @@ async function fetchJsonWithCurl<T>(url: string): Promise<T> {
     '--retry-max-time', '8',
     '--connect-timeout', '2',
     '--max-time', '5',
-    url,
   ], {
     maxBuffer: 16 * 1024 * 1024,
   })
-
-  return JSON.parse(stdout) as T
 }
 
 async function fetchMarketsFromUpstream(limit = UPSTREAM_LIMIT): Promise<MarketTerminalRow[]> {

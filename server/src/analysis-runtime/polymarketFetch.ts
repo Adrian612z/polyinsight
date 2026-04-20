@@ -1,4 +1,6 @@
 import type { PolymarketEvent, PolymarketMarket, PolymarketTag } from './parity.js'
+import { extractPolymarketSlug } from '../utils/polymarket.js'
+import { fetchResponseWithCurl, getOutboundProxyUrl } from '../utils/network.js'
 
 interface PolymarketParentEvent {
   id: string
@@ -21,9 +23,10 @@ interface PolymarketMarketLookup extends PolymarketMarket {
 }
 
 export async function fetchPolymarketEventForSlug(slug: string, signal?: AbortSignal): Promise<PolymarketEvent> {
-  const eventResponse = await fetch(`https://gamma-api.polymarket.com/events/slug/${encodeURIComponent(slug)}`, {
-    signal,
-  })
+  const eventUrl = `https://gamma-api.polymarket.com/events/slug/${encodeURIComponent(slug)}`
+  const eventResponse = getOutboundProxyUrl()
+    ? await fetchResponseWithCurl(eventUrl, ['-sS', '--location'])
+    : await fetch(eventUrl, { signal })
 
   if (eventResponse.ok) {
     return (await eventResponse.json()) as PolymarketEvent
@@ -33,9 +36,10 @@ export async function fetchPolymarketEventForSlug(slug: string, signal?: AbortSi
     throw new Error(`Failed to fetch Polymarket event (${eventResponse.status})`)
   }
 
-  const marketResponse = await fetch(`https://gamma-api.polymarket.com/markets/slug/${encodeURIComponent(slug)}`, {
-    signal,
-  })
+  const marketUrl = `https://gamma-api.polymarket.com/markets/slug/${encodeURIComponent(slug)}`
+  const marketResponse = getOutboundProxyUrl()
+    ? await fetchResponseWithCurl(marketUrl, ['-sS', '--location'])
+    : await fetch(marketUrl, { signal })
 
   if (!marketResponse.ok) {
     throw new Error(`Failed to resolve Polymarket slug (${slug}) as event or market`)
@@ -45,12 +49,25 @@ export async function fetchPolymarketEventForSlug(slug: string, signal?: AbortSi
   return buildSingleMarketEvent(market)
 }
 
+export async function resolveCanonicalPolymarketEventUrl(
+  slugOrUrl: string,
+  signal?: AbortSignal
+): Promise<string | null> {
+  const slug = extractPolymarketSlug(slugOrUrl) || slugOrUrl.trim()
+  if (!slug) return null
+
+  const event = await fetchPolymarketEventForSlug(slug, signal)
+  const canonicalSlug = String(event.slug || '').trim()
+  if (!canonicalSlug) return null
+  return `https://polymarket.com/event/${encodeURIComponent(canonicalSlug)}`
+}
+
 function buildSingleMarketEvent(market: PolymarketMarketLookup): PolymarketEvent {
   const parentEvent = Array.isArray(market.events) && market.events.length > 0 ? market.events[0] : null
 
   return {
     id: parentEvent?.id || market.id,
-    slug: market.slug,
+    slug: String(parentEvent?.slug || market.slug || '').trim() || market.slug,
     title: String(market.question || parentEvent?.title || market.slug || '').trim() || market.slug,
     description: String(market.description || parentEvent?.description || '').trim(),
     resolutionSource: String(parentEvent?.resolutionSource || '').trim(),

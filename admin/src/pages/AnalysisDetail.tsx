@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { ArrowLeft, ExternalLink } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Send, Sparkles, Star } from 'lucide-react'
 import { format } from 'date-fns'
 import { AnalysisFlowPanel } from '../components/AnalysisFlowPanel'
 
@@ -51,6 +51,17 @@ interface AnalysisUser {
   display_name: string | null
 }
 
+interface FeaturedAnalysis {
+  id?: string
+  event_title: string
+  is_active?: boolean | null
+  lark_push_status?: 'pending' | 'sent' | 'failed' | null
+  lark_push_sent_at?: string | null
+  lark_push_last_error?: string | null
+}
+
+type PublishTarget = 'homepage' | 'lark' | 'both'
+
 export default function AnalysisDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -58,6 +69,9 @@ export default function AnalysisDetail() {
   const [user, setUser] = useState<AnalysisUser | null>(null)
   const [latestJob, setLatestJob] = useState<AnalysisJob | null>(null)
   const [flow, setFlow] = useState<AnalysisFlowView | null>(null)
+  const [featured, setFeatured] = useState<FeaturedAnalysis | null>(null)
+  const [publishingTarget, setPublishingTarget] = useState<PublishTarget | null>(null)
+  const [publishNotice, setPublishNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -68,6 +82,7 @@ export default function AnalysisDetail() {
         setUser(data.user)
         setLatestJob(data.latestJob || null)
         setFlow(data.flow || null)
+        setFeatured(data.featured || null)
       })
       .finally(() => setLoading(false))
   }, [id])
@@ -88,6 +103,27 @@ export default function AnalysisDetail() {
     completed: 'bg-emerald-100 text-emerald-700',
     failed: 'bg-red-100 text-red-700',
     pending: 'bg-amber-100 text-amber-700',
+  }
+
+  const publishAction = async (target: PublishTarget) => {
+    if (!id) return
+    setPublishNotice(null)
+    setPublishingTarget(target)
+    try {
+      const result = await api.publishAnalysis(id, target)
+      setFeatured(result.featured || null)
+      const label =
+        target === 'homepage'
+          ? '已加入首页精选'
+          : target === 'lark'
+            ? '已推送到 Lark'
+            : '已加入首页精选并推送到 Lark'
+      setPublishNotice(label)
+    } catch (error) {
+      setPublishNotice(error instanceof Error ? error.message : '发布失败')
+    } finally {
+      setPublishingTarget(null)
+    }
   }
 
   return (
@@ -149,6 +185,82 @@ export default function AnalysisDetail() {
           </div>
         </dl>
       </div>
+
+      {analysis.status === 'completed' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">发布操作</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                可以把这条分析结果加入首页精选、推送到 Lark，或者同时执行两者。
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => publishAction('homepage')}
+                disabled={publishingTarget !== null}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-50 text-amber-700 text-sm font-medium hover:bg-amber-100 disabled:opacity-50"
+              >
+                <Star className="w-4 h-4" />
+                {publishingTarget === 'homepage' ? '处理中...' : '加入首页精选'}
+              </button>
+              <button
+                onClick={() => publishAction('lark')}
+                disabled={publishingTarget !== null}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-50 text-sky-700 text-sm font-medium hover:bg-sky-100 disabled:opacity-50"
+              >
+                <Send className="w-4 h-4" />
+                {publishingTarget === 'lark' ? '处理中...' : '推送到 Lark'}
+              </button>
+              <button
+                onClick={() => publishAction('both')}
+                disabled={publishingTarget !== null}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4" />
+                {publishingTarget === 'both' ? '处理中...' : '首页 + Lark'}
+              </button>
+            </div>
+          </div>
+
+          {publishNotice && (
+            <div className={`rounded-xl px-4 py-3 text-sm ${
+              /失败|error|failed/i.test(publishNotice)
+                ? 'bg-red-50 text-red-700 border border-red-200'
+                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+            }`}>
+              {publishNotice}
+            </div>
+          )}
+
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mt-4">
+            <div>
+              <dt className="text-gray-500">首页精选状态</dt>
+              <dd className="mt-0.5 text-gray-700">
+                {featured?.id ? (featured.is_active === false ? '已入库（当前隐藏）' : '已入库并展示') : '未加入首页精选'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">Lark 推送状态</dt>
+              <dd className="mt-0.5 text-gray-700">
+                {featured?.lark_push_status === 'sent'
+                  ? `已发送${featured.lark_push_sent_at ? `（${format(new Date(featured.lark_push_sent_at), 'yyyy-MM-dd HH:mm:ss')}）` : ''}`
+                  : featured?.lark_push_status === 'failed'
+                    ? '发送失败'
+                    : featured?.lark_push_status === 'pending'
+                      ? '待发送'
+                      : '暂无记录'}
+              </dd>
+            </div>
+            {featured?.lark_push_last_error && (
+              <div className="md:col-span-2">
+                <dt className="text-gray-500">Lark 最近错误</dt>
+                <dd className="mt-0.5 text-red-600 break-words">{featured.lark_push_last_error}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
 
       {/* Analysis Result */}
       {flow && (

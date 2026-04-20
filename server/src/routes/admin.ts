@@ -6,8 +6,16 @@ import { grantCredits } from '../services/credit.js'
 import { approveBillingOrder, rejectBillingOrder } from '../services/billing.js'
 import { buildAnalysisFlowView } from '../services/analysisFlow.js'
 import { enqueueAnalysisJob } from '../services/analysisJobs.js'
-import { ADMIN_MANUAL_FEATURED_USER_ID } from '../services/featured.js'
-import { extractPolymarketSlug, isValidPolymarketUrl, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
+import {
+  ADMIN_MANUAL_FEATURED_USER_ID,
+  buildFeaturedCandidateFromAnalysisSource,
+  type FeaturedRecord,
+  upsertFeaturedFromAnalysisSource,
+} from '../services/featured.js'
+import { getGrowthAnalytics, getUserAttribution, type GrowthGroupBy } from '../services/tracking.js'
+import { extractPolymarketSlug, isValidPolymarketUrl } from '../utils/polymarket.js'
+import { resolveCanonicalPolymarketEventUrl } from '../analysis-runtime/polymarketFetch.js'
+import { sendFeaturedToLark } from '../services/lark.js'
 
 const router = Router()
 
@@ -234,6 +242,23 @@ router.get('/dashboard/charts', async (_req: Request, res: Response) => {
   }
 })
 
+router.get('/growth/overview', async (req: Request, res: Response) => {
+  try {
+    const days = parseInt(req.query.days as string) || 30
+    const requestedGroupBy = typeof req.query.groupBy === 'string' ? req.query.groupBy : 'source_platform'
+    const groupBy: GrowthGroupBy =
+      requestedGroupBy === 'source_type' || requestedGroupBy === 'campaign_code'
+        ? requestedGroupBy
+        : 'source_platform'
+
+    const data = await getGrowthAnalytics(days, groupBy)
+    res.json(data)
+  } catch (err) {
+    console.error('Growth overview error:', err)
+    res.status(500).json({ error: 'Failed to fetch growth analytics' })
+  }
+})
+
 // ─── Users List (with search & filter) ─────────────────────────────
 router.get('/users', async (req: Request, res: Response) => {
   try {
@@ -280,7 +305,7 @@ router.get('/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params
 
-    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }] = await Promise.all([
+    const [{ data: user }, { data: analyses }, { data: transactions }, { data: invitedUsers }, { data: billingOrders }] = await Promise.all([
       supabase.from('users').select('*').eq('id', id).single(),
       supabase.from('analysis_records')
         .select('id, event_url, status, credits_charged, created_at')
@@ -297,6 +322,11 @@ router.get('/users/:id', async (req: Request, res: Response) => {
         .select('id, email, display_name, credit_balance, created_at')
         .eq('referred_by', id)
         .order('created_at', { ascending: false }),
+      supabase.from('billing_orders')
+        .select('id, plan_id, status, expected_amount_tokens, approved_at, created_at')
+        .eq('user_id', id)
+        .order('created_at', { ascending: false })
+        .limit(20),
     ])
 
     if (!user) {
@@ -315,7 +345,25 @@ router.get('/users/:id', async (req: Request, res: Response) => {
       referrerInfo = data
     }
 
-    res.json({ user, analyses, transactions, invitedUsers: invitedUsers || [], referrer: referrerInfo })
+    const attribution = await getUserAttribution(id)
+    const approvedOrders = (billingOrders || []).filter((order) => order.status === 'approved')
+    const totalRevenueTokens = approvedOrders.reduce(
+      (sum, order) => sum + Number(order.expected_amount_tokens || 0),
+      0,
+    )
+
+    res.json({
+      user,
+      analyses,
+      transactions,
+      invitedUsers: invitedUsers || [],
+      referrer: referrerInfo,
+      attribution,
+      billingSummary: {
+        approvedOrders: approvedOrders.length,
+        totalRevenueTokens,
+      },
+    })
   } catch (err) {
     console.error('User detail error:', err)
     res.status(500).json({ error: 'Failed to fetch user detail' })
@@ -447,6 +495,14 @@ router.get('/analyses/:id', async (req: Request, res: Response) => {
 
     if (jobsError) throw jobsError
 
+    const { data: featured, error: featuredError } = await supabase
+      .from('featured_analyses')
+      .select('*')
+      .eq('analysis_record_id', data.id)
+      .maybeSingle()
+
+    if (featuredError) throw featuredError
+
     const latestJob = Array.isArray(jobs) && jobs.length > 0 ? jobs[0] : null
     const flow = buildAnalysisFlowView({
       recordStatus: data.status,
@@ -455,10 +511,100 @@ router.get('/analyses/:id', async (req: Request, res: Response) => {
       jobError: latestJob?.last_error || null,
     })
 
-    res.json({ analysis: data, user, latestJob, jobs: jobs || [], flow })
+    res.json({ analysis: data, user, latestJob, jobs: jobs || [], flow, featured: featured || null })
   } catch (err) {
     console.error('Analysis detail error:', err)
     res.status(500).json({ error: 'Failed to fetch analysis detail' })
+  }
+})
+
+router.post('/analyses/:id/publish', async (req: Request, res: Response) => {
+  try {
+    const target = req.body?.target as 'homepage' | 'lark' | 'both' | undefined
+    if (!target || !['homepage', 'lark', 'both'].includes(target)) {
+      res.status(400).json({ error: 'A valid publish target is required' })
+      return
+    }
+
+    const { data: analysis, error } = await supabase
+      .from('analysis_records')
+      .select('id, event_url, analysis_result, status')
+      .eq('id', req.params.id)
+      .maybeSingle()
+
+    if (error) throw error
+    if (!analysis) {
+      res.status(404).json({ error: 'Analysis not found' })
+      return
+    }
+
+    if (analysis.status !== 'completed' || !analysis.analysis_result) {
+      res.status(409).json({ error: 'Only completed analyses with results can be published' })
+      return
+    }
+
+    const candidate = await buildFeaturedCandidateFromAnalysisSource({
+      analysisRecordId: analysis.id,
+      eventUrl: analysis.event_url,
+      analysisResult: analysis.analysis_result,
+      minMispricingScore: 0,
+    })
+
+    if (!candidate) {
+      res.status(422).json({ error: 'This analysis result cannot be converted into a publishable featured insight' })
+      return
+    }
+
+    let featured: FeaturedRecord | null = null
+    let larkStatus: 'sent' | 'skipped' = 'skipped'
+
+    if (target === 'homepage' || target === 'both') {
+      featured = await upsertFeaturedFromAnalysisSource({
+        analysisRecordId: analysis.id,
+        eventUrl: analysis.event_url,
+        analysisResult: analysis.analysis_result,
+        minMispricingScore: 0,
+      })
+
+      if (!featured) {
+        res.status(422).json({ error: 'This analysis result could not be added to homepage featured insights' })
+        return
+      }
+    } else {
+      const { data: existingFeatured } = await supabase
+        .from('featured_analyses')
+        .select('*')
+        .eq('analysis_record_id', analysis.id)
+        .maybeSingle()
+
+      featured = (existingFeatured as FeaturedRecord | null) || candidate.record
+    }
+
+    if (target === 'lark' || target === 'both') {
+      if (!config.larkBotWebhookUrl) {
+        res.status(409).json({ error: 'Lark webhook is not configured' })
+        return
+      }
+
+      await sendFeaturedToLark(featured as Parameters<typeof sendFeaturedToLark>[0])
+      larkStatus = 'sent'
+    }
+
+    const { data: refreshedFeatured } = await supabase
+      .from('featured_analyses')
+      .select('*')
+      .eq('analysis_record_id', analysis.id)
+      .maybeSingle()
+
+    res.json({
+      ok: true,
+      target,
+      larkStatus,
+      featured: refreshedFeatured || featured || null,
+    })
+  } catch (err) {
+    console.error('Publish analysis error:', err)
+    res.status(500).json({ error: 'Failed to publish analysis result' })
   }
 })
 
@@ -681,8 +827,13 @@ router.post('/featured/manual', async (req: Request, res: Response) => {
     }
 
     const slug = extractPolymarketSlug(rawUrl)
-    const canonicalUrl = toCanonicalPolymarketEventUrl(rawUrl)
-    if (!slug || !canonicalUrl) {
+    if (!slug) {
+      res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
+      return
+    }
+
+    const canonicalUrl = await resolveCanonicalPolymarketEventUrl(rawUrl)
+    if (!canonicalUrl) {
       res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
       return
     }

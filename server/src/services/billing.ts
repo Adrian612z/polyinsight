@@ -1,5 +1,6 @@
 import { grantCredits } from './credit.js'
 import { supabase } from './supabase.js'
+import { markApprovedBillingOrder } from './tracking.js'
 
 export type BillingPlanId = 'topup' | 'monthly' | 'unlimited'
 
@@ -46,9 +47,15 @@ interface BillingOrderRow {
   status: 'created' | 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'expired'
   expected_amount_tokens: number | string
   expected_credits: number
+  attribution_session_id?: string | null
+  attribution_campaign_code?: string | null
+  attribution_referral_code?: string | null
+  attribution_source_type?: string | null
+  attribution_source_platform?: string | null
   tx_hash?: string | null
   token_symbol?: string | null
   submitted_at?: string | null
+  approved_at?: string | null
   reviewed_by?: string | null
   expires_at?: string | null
 }
@@ -78,6 +85,15 @@ export interface BillingTransactionRow {
 
 function roundTokenAmount(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000
+}
+
+function toNumeric(value: number | string | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
 }
 
 function addDays(base: Date, days: number): Date {
@@ -138,7 +154,18 @@ async function assertPlanPurchaseAllowed(userId: string, planId: BillingPlanId):
   }
 }
 
-export async function createBillingOrder(userId: string, planId: BillingPlanId, rawAmount?: number) {
+export async function createBillingOrder(
+  userId: string,
+  planId: BillingPlanId,
+  rawAmount?: number,
+  attribution?: {
+    sessionId?: string | null
+    campaignCode?: string | null
+    referralCode?: string | null
+    sourceType?: string | null
+    sourcePlatform?: string | null
+  },
+) {
   const plan = BILLING_PLANS[planId]
   const { expectedAmountTokens, expectedCredits } = calculateBillingOrder(planId, rawAmount)
   const expiresAt = addDays(new Date(), 1).toISOString()
@@ -162,6 +189,30 @@ export async function createBillingOrder(userId: string, planId: BillingPlanId, 
   )
 
   if (reusableOrder) {
+    if (
+      attribution?.sessionId &&
+      (!reusableOrder.attribution_session_id ||
+        reusableOrder.attribution_session_id !== attribution.sessionId)
+    ) {
+      const { data: updatedReusable, error: reusableUpdateErr } = await supabase
+        .from('billing_orders')
+        .update({
+          attribution_session_id: attribution.sessionId,
+          attribution_campaign_code: attribution.campaignCode || reusableOrder.attribution_campaign_code || null,
+          attribution_referral_code: attribution.referralCode || reusableOrder.attribution_referral_code || null,
+          attribution_source_type: attribution.sourceType || reusableOrder.attribution_source_type || null,
+          attribution_source_platform:
+            attribution.sourcePlatform || reusableOrder.attribution_source_platform || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', reusableOrder.id)
+        .select()
+        .single()
+
+      if (reusableUpdateErr) throw reusableUpdateErr
+      return updatedReusable as BillingOrderRow
+    }
+
     return reusableOrder
   }
 
@@ -174,6 +225,11 @@ export async function createBillingOrder(userId: string, planId: BillingPlanId, 
       expected_amount_tokens: expectedAmountTokens,
       expected_credits: expectedCredits,
       expires_at: expiresAt,
+      attribution_session_id: attribution?.sessionId || null,
+      attribution_campaign_code: attribution?.campaignCode || null,
+      attribution_referral_code: attribution?.referralCode || null,
+      attribution_source_type: attribution?.sourceType || null,
+      attribution_source_platform: attribution?.sourcePlatform || null,
     })
     .select()
     .single()
@@ -464,9 +520,26 @@ async function hasGrantedOrderCredits(order: BillingOrderRow): Promise<boolean> 
 
 export async function approveBillingOrder(orderId: string, reviewerUserId?: string | null, reviewNote?: string) {
   const atomic = await approveBillingOrderViaRpc(orderId, reviewerUserId, reviewNote)
-  if (atomic) return atomic
+  const result = atomic || await approveBillingOrderLegacy(orderId, reviewerUserId, reviewNote)
+  await runApprovedBillingTracking(result.order)
+  return result
+}
 
-  return approveBillingOrderLegacy(orderId, reviewerUserId, reviewNote)
+async function runApprovedBillingTracking(order: BillingOrderRow): Promise<void> {
+  if (!order.user_id || !order.id) return
+
+  await markApprovedBillingOrder({
+    orderId: order.id,
+    userId: order.user_id,
+    sessionId: order.attribution_session_id || null,
+    approvedAt: order.approved_at || new Date().toISOString(),
+    campaignCode: order.attribution_campaign_code || null,
+    referralCode: order.attribution_referral_code || null,
+    sourceType: order.attribution_source_type || null,
+    sourcePlatform: order.attribution_source_platform || null,
+    amountTokens: toNumeric(order.expected_amount_tokens),
+    planId: order.plan_id,
+  })
 }
 
 async function approveBillingOrderLegacy(orderId: string, reviewerUserId?: string | null, reviewNote?: string) {

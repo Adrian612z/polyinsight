@@ -2,6 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import {
   LayoutDashboard,
+  BarChart3,
   Users,
   FileSearch,
   CreditCard,
@@ -13,6 +14,7 @@ import {
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: '仪表盘' },
+  { to: '/growth', icon: BarChart3, label: '增长分析' },
   { to: '/users', icon: Users, label: '用户管理' },
   { to: '/analyses', icon: FileSearch, label: '分析记录' },
   { to: '/transactions', icon: CreditCard, label: '交易记录' },

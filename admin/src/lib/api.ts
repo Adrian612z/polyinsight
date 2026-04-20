@@ -33,6 +33,8 @@ export const api = {
 
   dashboard: () => request('/admin/dashboard'),
   dashboardCharts: () => request('/admin/dashboard/charts'),
+  growth: (days = 30, groupBy = 'source_platform') =>
+    request(`/admin/growth/overview?days=${days}&groupBy=${encodeURIComponent(groupBy)}`),
 
   users: (page = 1, search = '', role = '') =>
     request(`/admin/users?page=${page}&search=${encodeURIComponent(search)}&role=${role}`),
@@ -43,6 +45,8 @@ export const api = {
   analyses: (page = 1, search = '', status = '') =>
     request(`/admin/analyses?page=${page}&search=${encodeURIComponent(search)}&status=${status}`),
   analysisDetail: (id: string) => request(`/admin/analyses/${id}`),
+  publishAnalysis: (id: string, target: 'homepage' | 'lark' | 'both') =>
+    request(`/admin/analyses/${id}/publish`, { method: 'POST', body: JSON.stringify({ target }) }),
 
   transactions: (page = 1, type = '', userId = '') =>
     request(`/admin/transactions?page=${page}&type=${type}&userId=${userId}`),

@@ -3,6 +3,7 @@ import { useAuthStore } from './store/authStore'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Growth from './pages/Growth'
 import Users from './pages/Users'
 import UserDetail from './pages/UserDetail'
 import Analyses from './pages/Analyses'
@@ -29,6 +30,7 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
+        <Route path="growth" element={<Growth />} />
         <Route path="users" element={<Users />} />
         <Route path="users/:id" element={<UserDetail />} />
         <Route path="analyses" element={<Analyses />} />

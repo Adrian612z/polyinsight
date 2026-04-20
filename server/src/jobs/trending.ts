@@ -15,6 +15,7 @@ import {
   parseDecisionJson,
   type FeaturedRecord,
 } from '../services/featured.js'
+import { sendFeaturedToLark } from '../services/lark.js'
 import type { PolymarketEvent } from '../services/polymarket.js'
 
 const AUTO_DISCOVERY_CRON = '0 */6 * * *'
@@ -186,8 +187,55 @@ async function createFeaturedEntry(
   }
 
   const category = guessCategory(event.title, decisionData)
+  let larkColumnsAvailable = true
+  let existing: {
+    id?: string
+    analysis_record_id?: string | null
+    lark_push_status?: 'pending' | 'sent' | 'failed' | null
+    lark_push_sent_at?: string | null
+  } | null = null
 
-  await supabase.from('featured_analyses').upsert({
+  const { data: existingWithPushState, error: existingError } = await supabase
+    .from('featured_analyses')
+    .select('id, analysis_record_id, lark_push_status, lark_push_sent_at')
+    .eq('event_slug', event.slug)
+    .maybeSingle()
+
+  if (existingError) {
+    const message = [existingError.message, existingError.details, existingError.hint]
+      .filter(Boolean)
+      .join(' ')
+
+    if (/lark_push_/i.test(message) && /column|schema cache|not found|does not exist/i.test(message)) {
+      larkColumnsAvailable = false
+
+      const { data: fallbackExisting, error: fallbackError } = await supabase
+        .from('featured_analyses')
+        .select('id, analysis_record_id')
+        .eq('event_slug', event.slug)
+        .maybeSingle()
+
+      if (fallbackError) {
+        console.error(`[Trending] Failed to read fallback featured record for ${event.slug}:`, fallbackError)
+        return
+      }
+
+      existing = fallbackExisting || null
+    } else {
+      console.error(`[Trending] Failed to read existing featured record for ${event.slug}:`, existingError)
+      return
+    }
+  } else {
+    existing = existingWithPushState || null
+  }
+
+  const shouldSendToLark = larkColumnsAvailable && (
+    !existing
+    || existing.analysis_record_id !== record.id
+    || existing.lark_push_status === 'failed'
+  )
+
+  const upsertPayload: Record<string, unknown> = {
     event_slug: event.slug,
     event_title: decisionData?.event || event.title || event.slug,
     category,
@@ -197,9 +245,38 @@ async function createFeaturedEntry(
     mispricing_score: mispricingScore,
     is_active: true,
     expires_at: getFeatureExpiryIso(event.endDate || null, String(decisionData?.deadline || '')),
-  }, { onConflict: 'event_slug' })
+  }
+
+  if (larkColumnsAvailable) {
+    upsertPayload.lark_push_status = shouldSendToLark ? 'pending' : existing?.lark_push_status || null
+    upsertPayload.lark_push_sent_at = shouldSendToLark ? null : existing?.lark_push_sent_at || null
+    if (shouldSendToLark) {
+      upsertPayload.lark_push_last_attempt_at = null
+      upsertPayload.lark_push_last_error = null
+    }
+  }
+
+  const { data: featured, error: upsertError } = await supabase
+    .from('featured_analyses')
+    .upsert(upsertPayload, { onConflict: 'event_slug' })
+    .select('*')
+    .single()
+
+  if (upsertError || !featured) {
+    console.error(`[Trending] Failed to upsert featured record for ${event.slug}:`, upsertError)
+    return
+  }
 
   console.log(`[Trending] Featured: ${event.slug} (mispricing: ${mispricingScore})`)
+
+  if (shouldSendToLark) {
+    try {
+      await sendFeaturedToLark(featured as FeaturedRecord)
+      console.log(`[Trending] Lark pushed: ${event.slug}`)
+    } catch (error) {
+      console.error(`[Trending] Lark push failed for ${event.slug}:`, error)
+    }
+  }
 }
 
 function extractSlug(url: string): string | null {

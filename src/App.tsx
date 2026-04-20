@@ -4,6 +4,7 @@ import { usePrivy } from '@privy-io/react-auth'
 import { useAuthStore } from './store/authStore'
 import { api, setPrivyToken } from './lib/backend'
 import { primeWorkspaceCaches } from './lib/pageCache'
+import { clearStoredReferralCode, getStoredReferralCode, getTrackingSessionId, initializeTracking } from './lib/tracking'
 import { Discovery } from './pages/Discovery'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { ReferralAuthModal } from './components/ReferralAuthModal'
@@ -38,17 +39,10 @@ function App() {
     window.location.assign('/analyze')
   }
 
-  // Capture referral code from URL
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const ref = params.get('ref')
-    if (ref) {
-      localStorage.setItem('polyinsight_ref', ref)
-      // Clean URL
-      const url = new URL(window.location.href)
-      url.searchParams.delete('ref')
-      window.history.replaceState({}, '', url.pathname + url.search)
-    }
+    void initializeTracking().catch((err) => {
+      console.error('Tracking initialization failed:', err)
+    })
   }, [])
 
   // Sync Privy auth state to Zustand store + register with backend
@@ -63,13 +57,15 @@ function App() {
       // Register with backend (once per session)
       if (!registeredRef.current) {
         registeredRef.current = true
-        const referralCode = localStorage.getItem('polyinsight_ref') || undefined
-            getAccessToken().then((token) => {
+        const referralCode = getStoredReferralCode() || undefined
+        const trackingSessionId = getTrackingSessionId()
+        getAccessToken().then((token) => {
           if (token) setPrivyToken(token)
           return api.register({
             email: user.email?.address || user.google?.email || undefined,
             displayName: display || undefined,
             referralCode,
+            trackingSessionId,
           })
         }).then((res) => {
           if (res.user) {
@@ -80,7 +76,7 @@ function App() {
             })
             void primeWorkspaceCaches(user.id)
           }
-          if (referralCode) localStorage.removeItem('polyinsight_ref')
+          if (referralCode) clearStoredReferralCode()
           if (res.isNew && !res.user?.referred_by) {
             setReferralPromptOpen(true)
             return

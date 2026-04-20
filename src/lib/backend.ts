@@ -1,5 +1,6 @@
 const API_BASE = '/api'
 import type { AnalysisFlowView } from './analysisFlow'
+import { getTrackingSessionId } from './tracking'
 
 // Module-scoped token storage (not exposed on window)
 let _privyToken: string | null = null
@@ -82,7 +83,12 @@ async function publicRequest(path: string) {
 
 export const api = {
   // Users
-  register: (body: { email?: string; displayName?: string; referralCode?: string }) =>
+  register: (body: {
+    email?: string
+    displayName?: string
+    referralCode?: string
+    trackingSessionId?: string
+  }) =>
     apiRequest('/users/register', { method: 'POST', body: JSON.stringify(body) }),
 
   applyReferralCode: (referralCode: string) =>
@@ -95,7 +101,14 @@ export const api = {
 
   // Analysis
   createAnalysis: (url: string, lang?: string) =>
-    apiRequest('/analysis', { method: 'POST', body: JSON.stringify({ url, lang: lang || 'en' }) }),
+    apiRequest('/analysis', {
+      method: 'POST',
+      body: JSON.stringify({
+        url,
+        lang: lang || 'en',
+        trackingSessionId: getTrackingSessionId(),
+      }),
+    }),
 
   getAnalysisHistory: (page = 1, limit = 10) =>
     apiRequest(`/analysis/history?page=${page}&limit=${limit}`),
@@ -166,7 +179,11 @@ export const api = {
   createBillingOrder: (planId: 'topup' | 'monthly' | 'unlimited', amount?: number) =>
     apiRequest('/billing/orders', {
       method: 'POST',
-      body: JSON.stringify({ planId, amount }),
+      body: JSON.stringify({
+        planId,
+        amount,
+        trackingSessionId: getTrackingSessionId(),
+      }),
     }),
 
   cancelBillingOrder: (orderId: string) =>

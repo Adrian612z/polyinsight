@@ -33,6 +33,22 @@ interface Transaction {
   created_at: string
 }
 
+interface Attribution {
+  first_campaign_code: string | null
+  first_referral_code: string | null
+  first_source_type: string | null
+  first_source_platform: string | null
+  last_campaign_code: string | null
+  last_referral_code: string | null
+  last_source_type: string | null
+  last_source_platform: string | null
+  registered_at: string
+  first_analysis_at: string | null
+  first_paid_at: string | null
+  approved_order_count: number
+  approved_order_revenue_tokens: number | string
+}
+
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -41,6 +57,8 @@ export default function UserDetail() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [invitedUsers, setInvitedUsers] = useState<{ id: string; email: string; display_name: string | null; credit_balance: number; created_at: string }[]>([])
   const [referrer, setReferrer] = useState<{ id: string; email: string; display_name: string | null; referral_code: string } | null>(null)
+  const [attribution, setAttribution] = useState<Attribution | null>(null)
+  const [billingSummary, setBillingSummary] = useState<{ approvedOrders: number; totalRevenueTokens: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [editRole, setEditRole] = useState('')
   const [saving, setSaving] = useState(false)
@@ -59,6 +77,8 @@ export default function UserDetail() {
       setTransactions(data.transactions || [])
       setInvitedUsers(data.invitedUsers || [])
       setReferrer(data.referrer || null)
+      setAttribution(data.attribution || null)
+      setBillingSummary(data.billingSummary || null)
     }).finally(() => setLoading(false))
   }, [id])
 
@@ -83,6 +103,8 @@ export default function UserDetail() {
       const data = await api.userDetail(id)
       setUser(data.user)
       setTransactions(data.transactions || [])
+      setAttribution(data.attribution || null)
+      setBillingSummary(data.billingSummary || null)
       setGrantAmount('')
       setGrantDesc('')
     } finally {
@@ -237,6 +259,62 @@ export default function UserDetail() {
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold mb-4">来源归因</h2>
+        {attribution ? (
+          <dl className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+            <div>
+              <dt className="text-gray-500">首次来源类型</dt>
+              <dd className="mt-0.5 text-gray-800">{attribution.first_source_type || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">首次来源平台</dt>
+              <dd className="mt-0.5 text-gray-800">{attribution.first_source_platform || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">首次活动代码</dt>
+              <dd className="mt-0.5 font-mono text-gray-800">{attribution.first_campaign_code || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">首次邀请码</dt>
+              <dd className="mt-0.5 font-mono text-gray-800">{attribution.first_referral_code || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">最近来源类型</dt>
+              <dd className="mt-0.5 text-gray-800">{attribution.last_source_type || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">最近来源平台</dt>
+              <dd className="mt-0.5 text-gray-800">{attribution.last_source_platform || '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">首次完成分析</dt>
+              <dd className="mt-0.5 text-gray-800">
+                {attribution.first_analysis_at ? format(new Date(attribution.first_analysis_at), 'yyyy-MM-dd HH:mm:ss') : '-'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">首次充值时间</dt>
+              <dd className="mt-0.5 text-gray-800">
+                {attribution.first_paid_at ? format(new Date(attribution.first_paid_at), 'yyyy-MM-dd HH:mm:ss') : '-'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-gray-500">通过订单</dt>
+              <dd className="mt-0.5 text-gray-800">{billingSummary?.approvedOrders ?? attribution.approved_order_count ?? 0}</dd>
+            </div>
+            <div>
+                <dt className="text-gray-500">累计收入（Token）</dt>
+                <dd className="mt-0.5 text-gray-800">
+                {Number(billingSummary?.totalRevenueTokens ?? attribution.approved_order_revenue_tokens ?? 0).toFixed(2)}
+                </dd>
+              </div>
+            </dl>
+        ) : (
+          <div className="text-sm text-gray-400">暂无来源归因数据</div>
+        )}
       </div>
 
       {/* Tabs */}

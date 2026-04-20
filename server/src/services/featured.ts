@@ -1,16 +1,23 @@
-import { fetchPolymarketEventForSlug } from '../analysis-runtime/polymarketFetch.js'
+import { fetchPolymarketEventForSlug, resolveCanonicalPolymarketEventUrl } from '../analysis-runtime/polymarketFetch.js'
 import { supabase } from './supabase.js'
-import { extractPolymarketSlug, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
+import { extractPolymarketSlug } from '../utils/polymarket.js'
 
 interface FeaturedDecisionOption {
+  name?: string
   market?: number
   ai?: number
+  rationale?: string
 }
 
 interface FeaturedDecisionData {
   event?: string
   options?: FeaturedDecisionOption[]
   deadline?: string | null
+  risk?: string
+  direction?: string
+  recommendation?: string
+  risk_reason?: string
+  summary_markdown?: string
 }
 
 export interface FeaturedRecord {
@@ -24,7 +31,17 @@ export interface FeaturedRecord {
   mispricing_score?: number | null
   is_active?: boolean | null
   expires_at?: string | null
+  lark_push_status?: 'pending' | 'sent' | 'failed' | null
+  lark_push_sent_at?: string | null
+  lark_push_last_attempt_at?: string | null
+  lark_push_last_error?: string | null
+  lark_push_payload?: Record<string, unknown> | null
   created_at?: string
+}
+
+export interface FeaturedCandidate {
+  slug: string
+  record: FeaturedRecord
 }
 
 export const ADMIN_MANUAL_FEATURED_USER_ID = 'system:admin-featured'
@@ -105,6 +122,25 @@ export function getFeaturedSignalStrength(featured: Pick<FeaturedRecord, 'decisi
   return strongest || Number(featured.mispricing_score || 0)
 }
 
+export function getStrongestFeaturedOption(
+  featured: Pick<FeaturedRecord, 'decision_data'>
+): { option: FeaturedDecisionOption; diff: number } | null {
+  const options = featured.decision_data?.options
+  if (!Array.isArray(options) || options.length === 0) return null
+
+  let strongest: { option: FeaturedDecisionOption; diff: number } | null = null
+
+  for (const option of options) {
+    if (typeof option.market !== 'number' || typeof option.ai !== 'number') continue
+    const diff = Math.abs(option.ai - option.market)
+    if (!strongest || diff > strongest.diff) {
+      strongest = { option, diff }
+    }
+  }
+
+  return strongest
+}
+
 export function hasRenderableDecision(featured: Pick<FeaturedRecord, 'decision_data'>): boolean {
   const options = featured.decision_data?.options
   if (!Array.isArray(options) || options.length === 0) return false
@@ -137,9 +173,32 @@ export async function upsertFeaturedFromAnalysisSource(input: {
   fallbackEndDate?: string | null
   minMispricingScore?: number
 }): Promise<FeaturedRecord | null> {
+  const candidate = await buildFeaturedCandidateFromAnalysisSource(input)
+  if (!candidate) return null
+
+  const { data, error } = await supabase
+    .from('featured_analyses')
+    .upsert(candidate.record, { onConflict: 'event_slug' })
+    .select('*')
+    .single()
+
+  if (error) throw error
+  return data as FeaturedRecord
+}
+
+export async function buildFeaturedCandidateFromAnalysisSource(input: {
+  analysisRecordId: string
+  eventUrl: string
+  analysisResult: string
+  fallbackTitle?: string | null
+  fallbackEndDate?: string | null
+  minMispricingScore?: number
+}): Promise<FeaturedCandidate | null> {
   const slug = extractPolymarketSlug(input.eventUrl)
-  const canonicalUrl = toCanonicalPolymarketEventUrl(input.eventUrl)
-  if (!slug || !canonicalUrl) return null
+  if (!slug) return null
+
+  const canonicalUrl = await resolveCanonicalPolymarketEventUrl(input.eventUrl)
+  if (!canonicalUrl) return null
 
   const decisionData = parseDecisionJson(input.analysisResult)
   const mispricingScore = calculateMispricingScore(decisionData)
@@ -176,9 +235,9 @@ export async function upsertFeaturedFromAnalysisSource(input: {
       ? decisionData.deadline.trim()
       : null
 
-  const { data, error } = await supabase
-    .from('featured_analyses')
-    .upsert({
+  return {
+    slug,
+    record: {
       event_slug: slug,
       event_title: eventTitle,
       category,
@@ -188,10 +247,6 @@ export async function upsertFeaturedFromAnalysisSource(input: {
       mispricing_score: mispricingScore,
       is_active: true,
       expires_at: getFeatureExpiryIso(eventEndDate, deadline),
-    }, { onConflict: 'event_slug' })
-    .select('*')
-    .single()
-
-  if (error) throw error
-  return data as FeaturedRecord
+    },
+  }
 }

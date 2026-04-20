@@ -14,10 +14,35 @@ interface AuthState {
   logout: () => void
 }
 
+function readStoredUser(): AdminUser | null {
+  const raw = localStorage.getItem('admin_user')
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<AdminUser> | null
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid admin user payload')
+    }
+
+    return {
+      id: typeof parsed.id === 'string' ? parsed.id : '',
+      email: typeof parsed.email === 'string' ? parsed.email : '',
+      display_name: typeof parsed.display_name === 'string' ? parsed.display_name : null,
+    }
+  } catch {
+    localStorage.removeItem('admin_user')
+    localStorage.removeItem('admin_token')
+    return null
+  }
+}
+
+const storedToken = localStorage.getItem('admin_token')
+const storedUser = readStoredUser()
+
 export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem('admin_token'),
-  user: JSON.parse(localStorage.getItem('admin_user') || 'null'),
-  isLoggedIn: !!localStorage.getItem('admin_token'),
+  token: storedToken,
+  user: storedUser,
+  isLoggedIn: Boolean(storedToken && storedUser),
 
   login: (token, user) => {
     localStorage.setItem('admin_token', token)

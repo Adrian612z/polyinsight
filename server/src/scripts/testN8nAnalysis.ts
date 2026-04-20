@@ -1,5 +1,6 @@
 import { supabase } from '../services/supabase.js'
-import { extractPolymarketSlug, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
+import { extractPolymarketSlug } from '../utils/polymarket.js'
+import { resolveCanonicalPolymarketEventUrl } from '../analysis-runtime/polymarketFetch.js'
 import { triggerN8nWebhook, waitForAnalysisRecordCompletion } from '../services/n8nAnalysis.js'
 
 const url = process.argv[2]
@@ -11,7 +12,7 @@ if (!url) {
 }
 
 const slug = extractPolymarketSlug(url)
-const canonicalUrl = toCanonicalPolymarketEventUrl(url)
+const canonicalUrl = await resolveCanonicalPolymarketEventUrl(url)
 if (!slug || !canonicalUrl) {
   console.error('Invalid Polymarket URL')
   process.exit(1)

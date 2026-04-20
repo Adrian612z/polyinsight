@@ -4,6 +4,11 @@ import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { config } from '../config.js'
 import { getActiveSubscription } from '../services/billing.js'
+import {
+  bindVisitSessionToUser,
+  getAttributionSnapshotBySessionId,
+  recordGrowthEvent,
+} from '../services/tracking.js'
 
 const router = Router()
 
@@ -24,8 +29,14 @@ function normalizeReferralCode(input: string): string {
 router.post('/register', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
-    const { email, displayName, referralCode } = req.body
-    const normalizedReferralCode = typeof referralCode === 'string' ? normalizeReferralCode(referralCode) : ''
+    const { email, displayName, referralCode, trackingSessionId } = req.body
+    const trackingSnapshot = await getAttributionSnapshotBySessionId(
+      typeof trackingSessionId === 'string' ? trackingSessionId : null,
+    )
+    const trackingReferralCode = trackingSnapshot?.referralCode || ''
+    const normalizedReferralCode = typeof referralCode === 'string' && referralCode.trim()
+      ? normalizeReferralCode(referralCode)
+      : normalizeReferralCode(trackingReferralCode)
 
     // Check if user already exists
     const { data: existing } = await supabase
@@ -58,6 +69,11 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
           .update(updates)
           .eq('id', userId)
       }
+
+      if (typeof trackingSessionId === 'string' && trackingSessionId.trim()) {
+        await bindVisitSessionToUser(trackingSessionId, userId, existing.created_at || undefined)
+      }
+
       res.json({
         user: {
           ...existing,
@@ -118,6 +134,19 @@ router.post('/register', authMiddleware, async (req: Request, res: Response) => 
       description: 'Signup bonus 3.00 credits',
       balance_after: config.signupBonus,
     })
+
+    if (typeof trackingSessionId === 'string' && trackingSessionId.trim()) {
+      await bindVisitSessionToUser(trackingSessionId, userId, newUser.created_at || undefined)
+      await recordGrowthEvent({
+        eventName: 'register_success',
+        sessionId: trackingSessionId,
+        userId,
+        pagePath: '/register',
+        metadata: {
+          referredBy: referredBy,
+        },
+      })
+    }
 
     res.json({
       user: newUser,

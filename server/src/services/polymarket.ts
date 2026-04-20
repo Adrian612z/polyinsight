@@ -1,10 +1,7 @@
-import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, resolve } from 'path'
-import { promisify } from 'util'
 import { fileURLToPath } from 'url'
-
-const execFileAsync = promisify(execFile)
+import { fetchJsonWithCurl as fetchJsonWithCurlProxy, getOutboundProxyUrl } from '../utils/network.js'
 
 export interface PolymarketEvent {
   slug: string
@@ -154,7 +151,7 @@ function aggregateMarketsToEvents(rawMarkets: RawPolymarketMarket[], limit: numb
 }
 
 async function fetchJsonWithCurl(url: string): Promise<unknown> {
-  const { stdout } = await execFileAsync('curl', [
+  return fetchJsonWithCurlProxy(url, [
     '-sS',
     '--fail',
     '--location',
@@ -165,10 +162,7 @@ async function fetchJsonWithCurl(url: string): Promise<unknown> {
     '--retry-max-time', '8',
     '--connect-timeout', '2',
     '--max-time', '5',
-    url,
   ])
-
-  return JSON.parse(stdout)
 }
 
 function loadCacheFromDisk() {
@@ -221,6 +215,10 @@ async function fetchTrendingEventsFromUpstream(limit = 10): Promise<PolymarketEv
   }
 
   const fallbackUrl = `https://gamma-api.polymarket.com/events?closed=false&order=volume24hr&ascending=false&limit=${limit}`
+  if (getOutboundProxyUrl()) {
+    return normalizeEvents(await fetchJsonWithCurl(fallbackUrl))
+  }
+
   const res = await fetch(fallbackUrl, {
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   })

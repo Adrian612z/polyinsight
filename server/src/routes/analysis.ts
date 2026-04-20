@@ -4,10 +4,12 @@ import { supabase } from '../services/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { deductCredits, refundAnalysisCreditsIfNeeded } from '../services/credit.js'
 import { config } from '../config.js'
-import { extractPolymarketSlug, isValidPolymarketUrl, toCanonicalPolymarketEventUrl } from '../utils/polymarket.js'
+import { extractPolymarketSlug, isValidPolymarketUrl } from '../utils/polymarket.js'
 import { getActiveSubscription } from '../services/billing.js'
 import { cancelAnalysisJobByRecord, enqueueAnalysisJob } from '../services/analysisJobs.js'
 import { buildAnalysisFlowView } from '../services/analysisFlow.js'
+import { getAttributionSnapshotBySessionId, recordGrowthEvent } from '../services/tracking.js'
+import { resolveCanonicalPolymarketEventUrl } from '../analysis-runtime/polymarketFetch.js'
 
 const router = Router()
 
@@ -25,7 +27,7 @@ const createAnalysisLimiter = rateLimit({
 router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res: Response) => {
   try {
     const userId = req.userId!
-    const { url, lang } = req.body
+    const { url, lang, trackingSessionId } = req.body
 
     if (!url || typeof url !== 'string') {
       res.status(400).json({ error: 'Please provide a Polymarket URL' })
@@ -38,14 +40,22 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
     }
 
     const slug = extractPolymarketSlug(url)
-    const canonicalUrl = toCanonicalPolymarketEventUrl(url)
-    if (!slug || !canonicalUrl) {
+    if (!slug) {
+      res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
+      return
+    }
+
+    const canonicalUrl = await resolveCanonicalPolymarketEventUrl(url)
+    if (!canonicalUrl) {
       res.status(400).json({ error: 'Invalid URL. Please provide a valid Polymarket market URL.' })
       return
     }
 
     // Validate lang parameter
     const validLang = lang === 'zh' ? 'zh' : 'en'
+    const trackingSnapshot = await getAttributionSnapshotBySessionId(
+      typeof trackingSessionId === 'string' ? trackingSessionId : null,
+    )
     const activeSubscription = await getActiveSubscription(userId)
     const hasUnlimitedAccess = Boolean(activeSubscription?.unlimited)
     const { count: activeJobsCount, error: activeJobsError } = await supabase
@@ -74,6 +84,11 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
         status: 'pending',
         user_id: userId,
         credits_charged: hasUnlimitedAccess ? 0 : config.analysisCost,
+        attribution_session_id: trackingSnapshot?.sessionId || null,
+        attribution_campaign_code: trackingSnapshot?.campaignCode || null,
+        attribution_referral_code: trackingSnapshot?.referralCode || null,
+        attribution_source_type: trackingSnapshot?.sourceType || null,
+        attribution_source_platform: trackingSnapshot?.sourcePlatform || null,
       })
       .select()
       .single()
@@ -135,6 +150,21 @@ router.post('/', authMiddleware, createAnalysisLimiter, async (req: Request, res
         )
       }
       throw queueErr
+    }
+
+    if (trackingSnapshot) {
+      await recordGrowthEvent({
+        eventName: 'analysis_created',
+        sessionId: trackingSnapshot.sessionId,
+        visitorId: trackingSnapshot.visitorId,
+        userId,
+        pagePath: '/analyze',
+        metadata: {
+          analysisRecordId: record.id,
+          eventUrl: canonicalUrl,
+          creditsCharged: hasUnlimitedAccess ? 0 : config.analysisCost,
+        },
+      })
     }
 
     res.json({

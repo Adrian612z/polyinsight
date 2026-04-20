@@ -94,6 +94,13 @@ export const config = {
     process.env.ANALYSIS_CODE_AUDIT_RETRY_DELAY_MS || process.env.ANALYSIS_CODE_RETRY_DELAY_MS || '8000'
   ),
   featuredAutoDiscoveryEnabled: process.env.FEATURED_AUTO_DISCOVERY_ENABLED === 'true',
+  publicAppUrl: optionalEnv('PUBLIC_APP_URL') || 'https://polyinsight.online',
+  larkBotWebhookUrl: optionalEnv('LARK_BOT_WEBHOOK_URL'),
+  outboundHttpProxy:
+    optionalEnv('OUTBOUND_HTTP_PROXY') ||
+    optionalEnv('HTTPS_PROXY') ||
+    optionalEnv('HTTP_PROXY') ||
+    optionalEnv('ALL_PROXY'),
 
   // Allowed frontend origins for CORS
   allowedOrigins: (process.env.ALLOWED_ORIGINS || 'https://polyinsight.online').split(','),
