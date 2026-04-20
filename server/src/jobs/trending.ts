@@ -21,6 +21,7 @@ import type { PolymarketEvent } from '../services/polymarket.js'
 const AUTO_DISCOVERY_CRON = '0 */6 * * *'
 const AUTO_DISCOVERY_MAX_ANALYSES = 5
 const AUTO_DISCOVERY_SCAN_LIMIT = 30
+const AUTO_PUSH_PER_RUN_LIMIT = 2
 const AUTO_PUSH_DAILY_LIMIT_REACHED = 'AUTO_PUSH_DAILY_LIMIT_REACHED'
 
 export function rankAutoDiscoveryEvents(events: PolymarketEvent[]): PolymarketEvent[] {
@@ -167,6 +168,8 @@ async function populateCompletedFeatured(context: { remainingAutoPushes: number 
     latestBySlug.set(slug, record)
   }
 
+  const pushCandidates: FeaturedRecord[] = []
+
   for (const record of latestBySlug.values()) {
     const slug = extractSlug(record.event_url)
     if (!slug) continue
@@ -183,7 +186,25 @@ async function populateCompletedFeatured(context: { remainingAutoPushes: number 
       console.warn(`[Trending] Failed to backfill event metadata for ${slug}:`, error)
     }
 
-    await createFeaturedEntry(event, record, context)
+    const publishResult = await createFeaturedEntry(event, record, context)
+    if (publishResult?.shouldSendToLark && publishResult.featured) {
+      pushCandidates.push(publishResult.featured)
+    }
+  }
+
+  const pushBudget = Math.min(context.remainingAutoPushes, AUTO_PUSH_PER_RUN_LIMIT)
+  const selectedForPush = pushCandidates
+    .sort((left, right) => getFeaturedSignalStrength(right) - getFeaturedSignalStrength(left))
+    .slice(0, pushBudget)
+
+  for (const featured of selectedForPush) {
+    try {
+      await sendFeaturedToLark(featured)
+      context.remainingAutoPushes = Math.max(context.remainingAutoPushes - 1, 0)
+      console.log(`[Trending] Lark pushed: ${featured.event_slug}`)
+    } catch (error) {
+      console.error(`[Trending] Lark push failed for ${featured.event_slug}:`, error)
+    }
   }
 }
 
@@ -191,12 +212,12 @@ async function createFeaturedEntry(
   event: { slug: string; title: string; endDate: string },
   record: { id: string; analysis_result: string },
   context?: { remainingAutoPushes: number }
-) {
+): Promise<{ featured: FeaturedRecord; shouldSendToLark: boolean } | null> {
   const decisionData = parseDecisionJson(record.analysis_result)
   const mispricingScore = calculateMispricingScore(decisionData)
 
   if (!decisionData || mispricingScore < 1) {
-    return
+    return null
   }
 
   const category = guessCategory(event.title, decisionData)
@@ -231,13 +252,13 @@ async function createFeaturedEntry(
 
       if (fallbackError) {
         console.error(`[Trending] Failed to read fallback featured record for ${event.slug}:`, fallbackError)
-        return
+        return null
       }
 
       existing = fallbackExisting || null
     } else {
       console.error(`[Trending] Failed to read existing featured record for ${event.slug}:`, existingError)
-      return
+      return null
     }
   } else {
     existing = existingWithPushState || null
@@ -283,26 +304,18 @@ async function createFeaturedEntry(
 
   if (upsertError || !featured) {
     console.error(`[Trending] Failed to upsert featured record for ${event.slug}:`, upsertError)
-    return
+    return null
   }
 
   console.log(`[Trending] Featured: ${event.slug} (mispricing: ${mispricingScore})`)
 
-  if (shouldSendToLark) {
-    if (context && context.remainingAutoPushes <= 0) {
-      console.log(`[Trending] Lark auto-push skipped by daily limit: ${event.slug}`)
-      return
-    }
+  if (shouldSendToLark && context && context.remainingAutoPushes <= 0) {
+    console.log(`[Trending] Lark auto-push skipped by daily limit: ${event.slug}`)
+  }
 
-    try {
-      await sendFeaturedToLark(featured as FeaturedRecord)
-      if (context) {
-        context.remainingAutoPushes = Math.max(context.remainingAutoPushes - 1, 0)
-      }
-      console.log(`[Trending] Lark pushed: ${event.slug}`)
-    } catch (error) {
-      console.error(`[Trending] Lark push failed for ${event.slug}:`, error)
-    }
+  return {
+    featured: featured as FeaturedRecord,
+    shouldSendToLark,
   }
 }
 
