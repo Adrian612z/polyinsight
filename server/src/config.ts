@@ -52,6 +52,10 @@ export const config = {
   dailyCheckinCycle: parseInt(process.env.DAILY_CHECKIN_CYCLE || '3'),
   dailyCheckinReward: parseInt(process.env.DAILY_CHECKIN_REWARD || '100'),
   dailyCheckinTimezone: process.env.DAILY_CHECKIN_TIMEZONE || 'Asia/Shanghai',
+  reportingTimezone:
+    process.env.REPORTING_TIMEZONE ||
+    process.env.DAILY_CHECKIN_TIMEZONE ||
+    'Asia/Shanghai',
 
   adminPassword: requireEnv('ADMIN_PASSWORD'),
   adminJwtSecret: requireEnv('ADMIN_JWT_SECRET'),

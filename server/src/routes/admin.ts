@@ -16,6 +16,7 @@ import { getGrowthAnalytics, getUserAttribution, type GrowthGroupBy } from '../s
 import { extractPolymarketSlug, isValidPolymarketUrl } from '../utils/polymarket.js'
 import { resolveCanonicalPolymarketEventUrl } from '../analysis-runtime/polymarketFetch.js'
 import { sendFeaturedToLark } from '../services/lark.js'
+import { formatDateKeyInTimeZone, getRecentDateKeysInTimeZone, getTodayDateKeyInTimeZone } from '../utils/timezone.js'
 
 const router = Router()
 
@@ -129,22 +130,23 @@ router.use(adminAuth)
 // ─── Dashboard Stats ───────────────────────────────────────────────
 router.get('/dashboard', async (_req: Request, res: Response) => {
   try {
-    const now = new Date()
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
+    const reportingTimeZone = config.reportingTimezone
+    const todayKey = getTodayDateKeyInTimeZone(reportingTimeZone)
+    const recentSince = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
 
     const [
       { count: totalUsers },
-      { count: todayUsers },
       { count: totalAnalyses },
-      { count: todayAnalyses },
+      { data: recentUsers },
+      { data: recentAnalyses },
       { data: creditStats },
       { count: referralCount },
       { data: allUsers },
     ] = await Promise.all([
       supabase.from('users').select('id', { count: 'exact', head: true }),
-      supabase.from('users').select('id', { count: 'exact', head: true }).gte('created_at', todayStart),
       supabase.from('analysis_records').select('id', { count: 'exact', head: true }),
-      supabase.from('analysis_records').select('id', { count: 'exact', head: true }).gte('created_at', todayStart),
+      supabase.from('users').select('created_at').gte('created_at', recentSince),
+      supabase.from('analysis_records').select('created_at').gte('created_at', recentSince),
       supabase.from('credit_transactions').select('amount, type'),
       supabase.from('users').select('id', { count: 'exact', head: true }).not('referred_by', 'is', null),
       supabase.from('users').select('id, referred_by'),
@@ -157,6 +159,12 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
 
     // Count unique referrers (users who have invited at least one person)
     const referrerSet = new Set((allUsers || []).filter(u => u.referred_by).map(u => u.referred_by))
+    const todayUsers = (recentUsers || []).filter((item) =>
+      formatDateKeyInTimeZone(item.created_at, reportingTimeZone) === todayKey
+    ).length
+    const todayAnalyses = (recentAnalyses || []).filter((item) =>
+      formatDateKeyInTimeZone(item.created_at, reportingTimeZone) === todayKey
+    ).length
 
     res.json({
       totalUsers: totalUsers || 0,
@@ -182,19 +190,20 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
 // ─── Dashboard Charts (30 days) ────────────────────────────────────
 router.get('/dashboard/charts', async (_req: Request, res: Response) => {
   try {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const reportingTimeZone = config.reportingTimezone
+    const rangeStart = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString()
 
     const [{ data: users }, { data: analyses }, { data: transactions }] = await Promise.all([
-      supabase.from('users').select('created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('analysis_records').select('created_at, status').gte('created_at', thirtyDaysAgo),
-      supabase.from('credit_transactions').select('created_at, amount, type').gte('created_at', thirtyDaysAgo),
+      supabase.from('users').select('created_at').gte('created_at', rangeStart),
+      supabase.from('analysis_records').select('created_at, status').gte('created_at', rangeStart),
+      supabase.from('credit_transactions').select('created_at, amount, type').gte('created_at', rangeStart),
     ])
 
     // Aggregate by date
     const dateMap = (items: any[], fn: (map: Record<string, any>, item: any) => void) => {
       const map: Record<string, any> = {}
       for (const item of items || []) {
-        const date = item.created_at?.slice(0, 10)
+        const date = formatDateKeyInTimeZone(item.created_at, reportingTimeZone)
         if (!date) continue
         if (!map[date]) map[date] = {}
         fn(map[date], item)
@@ -216,11 +225,7 @@ router.get('/dashboard/charts', async (_req: Request, res: Response) => {
     })
 
     // Fill in dates for last 30 days
-    const dates: string[] = []
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000)
-      dates.push(d.toISOString().slice(0, 10))
-    }
+    const dates = getRecentDateKeysInTimeZone(30, reportingTimeZone)
 
     res.json({
       userGrowth: dates.map(d => ({ date: d, count: userGrowth[d]?.count || 0 })),
